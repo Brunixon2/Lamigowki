@@ -88,72 +88,160 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
     </div>
 
     <div class="card">
-      <h3>Lista graczy</h3>
+      <h3 id="lobbyTitle">Lista graczy</h3>
+      <div id="lobbyStatus" style="color:#a1a1aa;font-size:13px;margin:-5px 0 10px">Nie dołączono do lobby</div>
       <ul id="playerList" class="playerList"></ul>
-      <div class="note">Lista pokazuje wszystkich 30 graczy. Synchronizację osób faktycznie dołączonych do jednego pokoju dodamy po podłączeniu backendu.</div>
+      <div class="note">Po dołączeniu do gry lista aktualizuje się na żywo.</div>
     </div>
   </div>
 </section>
 
-<script>
-const USERS = {
-      "AdmP": { pin: "4208", name: "Adam Pypla", host: false },
-      "AlkK": { pin: "0271", name: "Aleksandra Kaczmarek", host: false },
-      "AlcJ": { pin: "9234", name: "Alicja Jarus", host: false },
-      "AmlM": { pin: "4400", name: "Amelka Michalak", host: false },
-      "ArkL": { pin: "2635", name: "Arek Łeckio", host: false },
-      "BarB": { pin: "1369", name: "Barbara Baryga", host: false },
-      "BlnS": { pin: "1278", name: "Blanka Sobota", host: false },
-      "BrnG": { pin: "1199", name: "Bruno Grędziak", host: true },
-      "BrnK": { pin: "7780", name: "Bruno Klause", host: false },
-      "EmlS": { pin: "7478", name: "Emilia Skotarek", host: false },
-      "GabJ": { pin: "9759", name: "Gabryś Jędrzejewski", host: false },
-      "IgrR": { pin: "4673", name: "Igor Rybakowski", host: false },
-      "IgrS": { pin: "7554", name: "Igor Szwarc", host: false },
-      "JkbD": { pin: "2413", name: "Jakub Dworniczak", host: false },
-      "KasK": { pin: "0134", name: "Kasia Kmiecik", host: false },
-      "KldJ": { pin: "3797", name: "Klaudia Juskowiak", host: false },
-      "KlyL": { pin: "4960", name: "Klymenko Liliia", host: false },
-      "LenK": { pin: "5952", name: "Lena Klimek", host: false },
-      "MajP": { pin: "1135", name: "Maja Przybył", host: false },
-      "MarJ": { pin: "0603", name: "Maria Jarczyńska", host: false },
-      "MarW": { pin: "9274", name: "Maria Wujek", host: false },
-      "MriB": { pin: "9517", name: "Marianna Bręk", host: false },
-      "MrtN": { pin: "3398", name: "Martyna Nogała", host: false },
-      "MrtR": { pin: "5778", name: "Martyna Rudyńska", host: false },
-      "MlgK": { pin: "8263", name: "Małgosia Krawczyk", host: false },
-      "NikP": { pin: "6409", name: "Nikola Pierszchała", host: false },
-      "PtrB": { pin: "7795", name: "Patryk Bagiński", host: false },
-      "PtrP": { pin: "0854", name: "Patryk Pernak", host: false },
-      "SndK": { pin: "0599", name: "Sandra Kowalska", host: false },
-      "WikS": { pin: "6600", name: "Wiktoria Straburzyńska", host: false },
-      "Oglądający": { pin: "9013", name: "Oglądający", host: false }
+
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
+import {
+  getDatabase, ref, set, get, update, onValue, onDisconnect
+} from "https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCXMWsIgPPjV4pQFonYRJvUNjWa96Z3tE8",
+  authDomain: "lamiglowki-60ed9.firebaseapp.com",
+  databaseURL: "https://lamiglowki-60ed9-default-rtdb.firebaseio.com",
+  projectId: "lamiglowki-60ed9",
+  storageBucket: "lamiglowki-60ed9.firebasestorage.app",
+  messagingSenderId: "937018489247",
+  appId: "1:937018489247:web:08504c87cf08ceb147e5aa",
+  measurementId: "G-RF4JC8CCRE"
 };
 
-const ALL_PLAYERS = ['Adam Pypla', 'Aleksandra Kaczmarek', 'Alicja Jarus', 'Amelka Michalak', 'Arek Łeckio', 'Barbara Baryga', 'Blanka Sobota', 'Bruno Grędziak', 'Bruno Klause', 'Emilia Skotarek', 'Gabryś Jędrzejewski', 'Igor Rybakowski', 'Igor Szwarc', 'Jakub Dworniczak', 'Kasia Kmiecik', 'Klaudia Juskowiak', 'Klymenko Liliia', 'Lena Klimek', 'Maja Przybył', 'Maria Jarczyńska', 'Maria Wujek', 'Marianna Bręk', 'Martyna Nogała', 'Martyna Rudyńska', 'Małgosia Krawczyk', 'Nikola Pierszchała', 'Patryk Bagiński', 'Patryk Pernak', 'Sandra Kowalska', 'Wiktoria Straburzyńska'];
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+const USERS = {
+  "AdmP": {pin:"4208",name:"Adam Pypla"},
+  "AlkK": {pin:"0271",name:"Aleksandra Kaczmarek"},
+  "AlcJ": {pin:"9234",name:"Alicja Jarus"},
+  "AmlM": {pin:"4400",name:"Amelka Michalak"},
+  "ArkL": {pin:"2635",name:"Arek Łeckio"},
+  "BarB": {pin:"1369",name:"Barbara Baryga"},
+  "BlnS": {pin:"1278",name:"Blanka Sobota"},
+  "BrnG": {pin:"1199",name:"Bruno Grędziak",host:true},
+  "BrnK": {pin:"7780",name:"Bruno Klause"},
+  "EmlS": {pin:"7478",name:"Emilia Skotarek"},
+  "GabJ": {pin:"9759",name:"Gabryś Jędrzejewski"},
+  "IgrR": {pin:"4673",name:"Igor Rybakowski"},
+  "IgrS": {pin:"7554",name:"Igor Szwarc"},
+  "JkbD": {pin:"2413",name:"Jakub Dworniczak"},
+  "KasK": {pin:"0134",name:"Kasia Kmiecik"},
+  "KldJ": {pin:"3797",name:"Klaudia Juskowiak"},
+  "KlyL": {pin:"4960",name:"Klymenko Liliia"},
+  "LenK": {pin:"5952",name:"Lena Klimek"},
+  "MajP": {pin:"1135",name:"Maja Przybył"},
+  "MarJ": {pin:"0603",name:"Maria Jarczyńska"},
+  "MarW": {pin:"9274",name:"Maria Wujek"},
+  "MriB": {pin:"9517",name:"Marianna Bręk"},
+  "MrtN": {pin:"3398",name:"Martyna Nogała"},
+  "MrtR": {pin:"5778",name:"Martyna Rudyńska"},
+  "MlgK": {pin:"8263",name:"Małgosia Krawczyk"},
+  "NikP": {pin:"6409",name:"Nikola Pierszchała"},
+  "PtrB": {pin:"7795",name:"Patryk Bagiński"},
+  "PtrP": {pin:"0854",name:"Patryk Pernak"},
+  "SndK": {pin:"0599",name:"Sandra Kowalska"},
+  "WikS": {pin:"6600",name:"Wiktoria Straburzyńska"},
+  "Oglądający": {pin:"9013",name:"Oglądający",spectator:true}
+};
+
 let currentUser = null;
 let currentGameCode = null;
+let stopLobbyListener = null;
 
-const loginScreen = document.getElementById("loginScreen");
-const homeScreen = document.getElementById("homeScreen");
-const loginLogo = document.getElementById("loginLogo");
-const error = document.getElementById("error");
+const $ = id => document.getElementById(id);
+const loginScreen = $("loginScreen");
+const homeScreen = $("homeScreen");
+const loginLogo = $("loginLogo");
+const error = $("error");
 
-function renderPlayers() {
-  const list = document.getElementById("playerList");
+function safeKey(s) {
+  return s.replace(/[.#$\[\]\/]/g, "_");
+}
+
+function renderLobby(players = {}) {
+  const list = $("playerList");
   list.innerHTML = "";
-  ALL_PLAYERS.forEach(name => {
+
+  const entries = Object.values(players);
+  entries.sort((a,b) => (a.spectator ? 1 : 0) - (b.spectator ? 1 : 0) || a.name.localeCompare(b.name,"pl"));
+
+  for (const p of entries) {
     const li = document.createElement("li");
-    li.innerHTML = '<span class="dot"></span><span></span>';
-    li.lastElementChild.textContent = name;
+    const dot = document.createElement("span");
+    dot.className = "dot";
+    dot.style.background = "#22c55e";
+
+    const name = document.createElement("span");
+    name.textContent = p.name + (p.host ? " — Prowadzący" : p.spectator ? " — Oglądający" : "");
+
+    li.append(dot, name);
     list.appendChild(li);
+  }
+
+  const playing = entries.filter(p => !p.spectator).length;
+  const spectators = entries.filter(p => p.spectator).length;
+  $("lobbyTitle").textContent = `Lista graczy (${playing}/30)`;
+  $("lobbyStatus").textContent =
+    currentGameCode
+      ? `Kod Gry: ${currentGameCode}` + (spectators ? ` • Oglądający: ${spectators}` : "")
+      : "Nie dołączono do lobby";
+}
+
+function listenToLobby(code) {
+  currentGameCode = code;
+  if (stopLobbyListener) stopLobbyListener();
+
+  const gameRef = ref(db, `games/${code}`);
+  stopLobbyListener = onValue(gameRef, snap => {
+    if (!snap.exists()) {
+      $("lobbyStatus").textContent = "Ta gra już nie istnieje.";
+      return;
+    }
+    const game = snap.val();
+    renderLobby(game.players || {});
+
+    if (game.status === "started") {
+      $("lobbyStatus").textContent = `Kod Gry: ${code} • Gra rozpoczęta`;
+      // Tu później podłączymy ekran pierwszej rundy.
+    }
   });
 }
 
-document.getElementById("loginForm").addEventListener("submit", e => {
+async function addCurrentUserToGame(code) {
+  const playerRef = ref(db, `games/${code}/players/${safeKey(currentUser.login)}`);
+  await set(playerRef, {
+    login: currentUser.login,
+    name: currentUser.name,
+    host: !!currentUser.host,
+    spectator: !!currentUser.spectator,
+    joinedAt: Date.now()
+  });
+
+  // Jeśli telefon zamknie stronę lub straci połączenie, osoba zniknie z lobby.
+  try { await onDisconnect(playerRef).remove(); } catch (_) {}
+}
+
+async function makeUniqueCode() {
+  for (let i = 0; i < 30; i++) {
+    const code = String(Math.floor(1000 + Math.random() * 9000));
+    const snap = await get(ref(db, `games/${code}`));
+    if (!snap.exists()) return code;
+  }
+  throw new Error("Nie udało się wygenerować wolnego kodu.");
+}
+
+$("loginForm").addEventListener("submit", e => {
   e.preventDefault();
-  const login = document.getElementById("login").value.trim();
-  const pin = document.getElementById("pin").value.trim();
+  const login = $("login").value.trim();
+  const pin = $("pin").value.trim();
   const user = USERS[login];
 
   if (!user || user.pin !== pin) {
@@ -169,33 +257,88 @@ document.getElementById("loginForm").addEventListener("submit", e => {
     loginScreen.style.display = "none";
     homeScreen.style.display = "block";
     document.body.style.overflow = "auto";
-    document.getElementById("welcome").textContent = "Zalogowano jako: " + user.name;
-    if (user.host) document.getElementById("hostCard").classList.remove("hidden");
-    renderPlayers();
+    $("welcome").textContent = "Zalogowano jako: " + user.name;
+    if (user.host) $("hostCard").classList.remove("hidden");
+    renderLobby({});
     window.scrollTo(0,0);
   }, 430);
 });
 
-document.getElementById("createGame").addEventListener("click", () => {
+$("createGame").addEventListener("click", async () => {
   if (!currentUser?.host) return;
-  currentGameCode = String(Math.floor(1000 + Math.random() * 9000));
-  document.getElementById("createdCode").textContent = currentGameCode;
-  document.getElementById("createdGame").classList.remove("hidden");
-  document.getElementById("createGame").textContent = "Utwórz nową grę";
+  const btn = $("createGame");
+  btn.disabled = true;
+  btn.textContent = "Tworzenie...";
+
+  try {
+    const code = await makeUniqueCode();
+    await set(ref(db, `games/${code}`), {
+      code,
+      status: "lobby",
+      hostLogin: currentUser.login,
+      createdAt: Date.now()
+    });
+    await addCurrentUserToGame(code);
+
+    currentGameCode = code;
+    $("createdCode").textContent = code;
+    $("createdGame").classList.remove("hidden");
+    btn.textContent = "Utwórz nową grę";
+    listenToLobby(code);
+  } catch (err) {
+    console.error(err);
+    alert("Nie udało się utworzyć gry. Sprawdź połączenie z Firebase.");
+    btn.textContent = "Utwórz grę";
+  } finally {
+    btn.disabled = false;
+  }
 });
 
-document.getElementById("joinGame").addEventListener("click", () => {
-  const code = document.getElementById("gameCodeInput").value.trim();
-  if (code.length !== 4) {
+$("joinGame").addEventListener("click", async () => {
+  if (!currentUser) return;
+
+  const code = $("gameCodeInput").value.trim();
+  if (!/^\d{4}$/.test(code)) {
     alert("Wpisz 4-cyfrowy Kod Gry.");
     return;
   }
-  alert("Dołączanie do pokoju " + code + " podłączymy do systemu multiplayer.");
+
+  try {
+    const gameSnap = await get(ref(db, `games/${code}`));
+    if (!gameSnap.exists()) {
+      alert("Nie znaleziono gry o takim kodzie.");
+      return;
+    }
+
+    const game = gameSnap.val();
+    if (game.status !== "lobby") {
+      alert("Ta gra już się rozpoczęła.");
+      return;
+    }
+
+    await addCurrentUserToGame(code);
+    listenToLobby(code);
+    $("gameCodeInput").value = "";
+  } catch (err) {
+    console.error(err);
+    alert("Nie udało się dołączyć. Sprawdź połączenie z Firebase.");
+  }
 });
 
-document.getElementById("startGame").addEventListener("click", () => {
-  alert("Ekran właściwej gry dodamy w kolejnym kroku.");
+$("startGame").addEventListener("click", async () => {
+  if (!currentUser?.host || !currentGameCode) return;
+
+  try {
+    await update(ref(db, `games/${currentGameCode}`), {
+      status: "started",
+      startedAt: Date.now()
+    });
+  } catch (err) {
+    console.error(err);
+    alert("Nie udało się rozpocząć gry.");
+  }
 });
 </script>
+
 </body>
 </html>
