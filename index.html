@@ -1853,8 +1853,12 @@ function joyMove(e){
 }
 
 joy.addEventListener("pointerdown",e=>{
+  // Mouse: only left button controls the joystick.
+  // Touch/pen still works normally.
+  if(e.pointerType==="mouse" && e.button!==0) return;
+
   joyPointer=e.pointerId;
-  joy.setPointerCapture(e.pointerId);
+  try{ joy.setPointerCapture(e.pointerId); }catch(_){}
   joyMove(e);
 });
 joy.addEventListener("pointermove",e=>{
@@ -1869,21 +1873,65 @@ function joyEnd(e){
 joy.addEventListener("pointerup",joyEnd);
 joy.addEventListener("pointercancel",joyEnd);
 
+joy.addEventListener("lostpointercapture",()=>{
+  joyPointer=null;
+  moveVec={x:0,y:0};
+  knob.style.transform="";
+});
+
+// Right click should never break movement or leave an input "held".
+gameScreen.addEventListener("contextmenu",e=>{
+  e.preventDefault();
+  resetMovementInput();
+});
+
+// Browser context menus / tab changes can swallow keyup or pointerup events.
+// Clear the movement state whenever focus is lost.
+window.addEventListener("blur",resetMovementInput);
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden) resetMovementInput();
+});
+
+
 const pressed=new Set();
 function recalcKeys(){
   keyVec.x=(pressed.has("ArrowRight")||pressed.has("KeyD")?1:0)-(pressed.has("ArrowLeft")||pressed.has("KeyA")?1:0);
   keyVec.y=(pressed.has("ArrowDown")||pressed.has("KeyS")?1:0)-(pressed.has("ArrowUp")||pressed.has("KeyW")?1:0);
 }
+
+function resetMovementInput(){
+  pressed.clear();
+  keyVec={x:0,y:0};
+  moveVec={x:0,y:0};
+  moveTarget=null;
+  joyPointer=null;
+  if(knob) knob.style.transform="";
+}
 addEventListener("keydown",e=>{
-  if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","KeyW","KeyA","KeyS","KeyD"].includes(e.code)){
+  const target=e.target;
+  const typing =
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    target?.isContentEditable;
+
+  // WASD/strzałki sterują graczem tylko podczas właściwej gry
+  // i nigdy podczas pisania w polach tekstowych.
+  if(
+    gameScreen.style.display==="block" &&
+    !typing &&
+    ["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","KeyW","KeyA","KeyS","KeyD"].includes(e.code)
+  ){
     pressed.add(e.code);
     recalcKeys();
     e.preventDefault();
   }
 });
 addEventListener("keyup",e=>{
-  pressed.delete(e.code);
-  recalcKeys();
+  if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","KeyW","KeyA","KeyS","KeyD"].includes(e.code)){
+    pressed.delete(e.code);
+    recalcKeys();
+  }
 });
 
 function nearExit(){
