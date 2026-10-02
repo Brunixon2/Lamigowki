@@ -495,6 +495,20 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
 }
 
 
+
+#drownOverlay{
+  position:fixed;
+  z-index:110;
+  inset:0;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  background:rgba(0,82,112,.84);
+  color:#fff;
+  font:900 clamp(28px,6vw,56px) system-ui,-apple-system,"Segoe UI",sans-serif;
+  text-shadow:0 3px 0 #00384b;
+}
+#drownOverlay.show{display:flex}
 </style>
 </head>
 <body>
@@ -565,6 +579,7 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
 <audio id="ambientAudio" src="assets/ambient.mp3" loop preload="auto"></audio>
 <audio id="doorOpenAudio" src="assets/door_open.mp3" preload="auto"></audio>
 <audio id="portalAudio" src="assets/portal_ambient.mp3" loop preload="auto"></audio>
+<audio id="splashAudio" src="assets/splash.mp3" preload="auto"></audio>
 
 <section id="gameScreen">
   <canvas id="mazeCanvas"></canvas>
@@ -593,6 +608,7 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
 <div id="portalWait">
   <div class="portalText">Oczekiwanie aż wszyscy dojdą do drzwi</div>
 </div>
+<div id="drownOverlay"><div>Utonąłeś</div></div>
 
 <div id="rotateScreen">
   <div class="rotateBox"><span class="phone">📱</span>Obróć telefon poziomo, aby grać.</div>
@@ -653,6 +669,8 @@ const authPersistenceReady = setPersistence(auth, browserSessionPersistence);
 let currentUser = null;
 let currentGameCode = null;
 let stopLobbyListener = null;
+let currentGameData = null;
+let currentLevel = 0;
 
 const $ = id => document.getElementById(id);
 const loginScreen = $("loginScreen");
@@ -690,6 +708,22 @@ const START_X = 30;
 const START_Y = 18;
 const LIGHT_RADIUS = 5;
 
+const L2_COLS = 34;
+const L2_ROWS = 17;
+const L2_LEFT_GROUND_END = 4;
+const L2_RIGHT_GROUND_START = 29;
+const L2_PLATFORM_X = 11;
+const L2_PLATFORM_Y = 5;
+const L2_PLATFORM_W = 12;
+const L2_PLATFORM_H = 6;
+const L2_BRIDGE_Y = 7;
+const L2_BRIDGE_H = 2;
+const L2_ENTRY_BRIDGE_X = 5;
+const L2_ENTRY_BRIDGE_W = 6;
+const L2_EXIT_BRIDGE_X = 23;
+const L2_EXIT_BRIDGE_W = 6;
+const L2_CHALLENGE_MS = 24000;
+
 let maze = null;
 let localPos = {x:START_X+.5,y:START_Y+.5};
 let spectatorPos = {x:START_X+.5,y:START_Y+.5};
@@ -714,6 +748,16 @@ let escapePathRevealed = false;
 let currentEscapePath = [];
 let lastEscapePathStart = "";
 let finishingLevel = false;
+let level2Phase = "gather";
+let level2Seed = 1;
+let level2ChallengeAt = 0;
+let level2ExitAt = 0;
+let level2Schedule = new Map();
+let level2ProtectedRow = L2_PLATFORM_Y + 2;
+let level2Drowning = false;
+let level2TransitionSent = false;
+let level2PhaseWritePending = false;
+let level2LastPhase = "";
 const avatarImageCache = new Map();
 
 let moveTarget = null;
@@ -786,10 +830,12 @@ function syncAvatarToCurrentGame(){
 const ambientAudio = $("ambientAudio");
 const doorOpenAudio = $("doorOpenAudio");
 const portalAudio = $("portalAudio");
+const splashAudio = $("splashAudio");
 
 ambientAudio.volume = 0.14;
 doorOpenAudio.volume = 0.55;
 portalAudio.volume = 0.24;
+splashAudio.volume = 0.35;
 
 
 function tryStartAmbient(){
@@ -807,7 +853,11 @@ for (const [k,u] of Object.entries({
   dirt:"assets/dirt.png",
   paper:"assets/paper.png",
   doorLocked:"assets/door_with_a_lock.png",
-  doorUnlocked:"assets/door_unlocked.png"
+  doorUnlocked:"assets/door_unlocked.png",
+  water:"assets/water.png",
+  oak:"assets/oak_plank.png",
+  spruce:"assets/spruce_plank.png",
+  door:"assets/door.png"
 })) {
   tex[k] = new Image();
   tex[k].src = u;
@@ -1064,6 +1114,7 @@ addEventListener("orientationchange",()=>setTimeout(resizeCanvas,150));
 resizeCanvas();
 
 function canMove(x,y){
+  if(currentLevel===2) return canMoveLevel2(x,y);
   if(!maze) return false;
   const r=.26;
   return [
@@ -1072,8 +1123,6 @@ function canMove(x,y){
     const tx=Math.floor(px);
     const ty=Math.floor(py);
     if(maze?.[ty]?.[tx]!==0) return false;
-
-
     if(!escapePathRevealed && tx===exitCell.x && ty===exitCell.y) return false;
     return true;
   });
@@ -1686,9 +1735,586 @@ function renderSpectatorOverview(){
   }
 }
 
+
+function l2InsideOak(x,y){
+  return x>=L2_PLATFORM_X &&
+    x<L2_PLATFORM_X+L2_PLATFORM_W &&
+    y>=L2_PLATFORM_Y &&
+    y<L2_PLATFORM_Y+L2_PLATFORM_H;
+}
+
+function l2InsideEntryBridge(x,y){
+  return x>=L2_ENTRY_BRIDGE_X &&
+    x<L2_ENTRY_BRIDGE_X+L2_ENTRY_BRIDGE_W &&
+    y>=L2_BRIDGE_Y &&
+    y<L2_BRIDGE_Y+L2_BRIDGE_H;
+}
+
+function l2InsideExitBridge(x,y){
+  return x>=L2_EXIT_BRIDGE_X &&
+    x<L2_EXIT_BRIDGE_X+L2_EXIT_BRIDGE_W &&
+    y>=L2_BRIDGE_Y &&
+    y<L2_BRIDGE_Y+L2_BRIDGE_H;
+}
+
+function l2InsideLeftGround(x,y){
+  return x>=1 && x<=L2_LEFT_GROUND_END && y>=1 && y<L2_ROWS-1;
+}
+
+function l2InsideRightGround(x,y){
+  return x>=L2_RIGHT_GROUND_START && x<L2_COLS-1 && y>=1 && y<L2_ROWS-1;
+}
+
+function buildLevel2Schedule(seed){
+  const rnd=seededRandom(seed);
+  level2ProtectedRow=L2_PLATFORM_Y+Math.floor(rnd()*L2_PLATFORM_H);
+  level2Schedule=new Map();
+
+  for(let y=L2_PLATFORM_Y;y<L2_PLATFORM_Y+L2_PLATFORM_H;y++){
+    for(let x=L2_PLATFORM_X;x<L2_PLATFORM_X+L2_PLATFORM_W;x++){
+      if(y===level2ProtectedRow) continue;
+      const warningAt=2600+rnd()*17200;
+      const fallAt=warningAt+1250+rnd()*450;
+      level2Schedule.set(x+","+y,{warningAt,fallAt});
+    }
+  }
+}
+
+function level2OakState(x,y,now=Date.now()){
+  if(!l2InsideOak(x,y)) return "none";
+  if(y===level2ProtectedRow) return "safe";
+  if(level2Phase==="gather") return "safe";
+
+  const timing=level2Schedule.get(x+","+y);
+  if(!timing || !level2ChallengeAt) return "safe";
+
+  const elapsed=now-level2ChallengeAt;
+  if(elapsed<timing.warningAt) return "safe";
+  if(elapsed<timing.fallAt) return "warning";
+  if(elapsed<timing.fallAt+700) return "falling";
+  return "fallen";
+}
+
+function level2ExitBridgeReady(now=Date.now()){
+  if(level2Phase!=="exit" || !level2ExitAt) return false;
+  return now-level2ExitAt>=900;
+}
+
+function level2CellSolid(tx,ty,now=Date.now()){
+  if(tx<0||ty<0||tx>=L2_COLS||ty>=L2_ROWS) return false;
+  if(l2InsideLeftGround(tx,ty) || l2InsideRightGround(tx,ty)) return true;
+
+  if(l2InsideEntryBridge(tx,ty)){
+    if(level2Phase==="gather") return true;
+    if(level2Phase==="challenge" && level2ChallengeAt && now-level2ChallengeAt<380) return true;
+    return false;
+  }
+
+  if(l2InsideOak(tx,ty)){
+    const state=level2OakState(tx,ty,now);
+    return state!=="falling" && state!=="fallen";
+  }
+
+  if(l2InsideExitBridge(tx,ty)) return level2ExitBridgeReady(now);
+  return false;
+}
+
+function canMoveLevel2(x,y){
+  const r=.24;
+  const now=Date.now();
+  return [
+    [x-r,y-r],[x+r,y-r],[x-r,y+r],[x+r,y+r]
+  ].every(([px,py])=>level2CellSolid(Math.floor(px),Math.floor(py),now));
+}
+
+function drawAnimatedWater(x,y,size,now){
+  const img=tex.water;
+
+  if(!img.complete || !img.naturalWidth || !img.naturalHeight){
+    ctx.fillStyle="#08bdd8";
+    ctx.fillRect(x,y,size+1,size+1);
+    return;
+  }
+
+  let frameSize;
+  let frames;
+  let sx=0;
+  let sy=0;
+
+  if(img.naturalHeight>=img.naturalWidth){
+    frameSize=img.naturalWidth;
+    frames=Math.max(1,Math.floor(img.naturalHeight/frameSize));
+    sy=(Math.floor(now/135)%frames)*frameSize;
+  }else{
+    frameSize=img.naturalHeight;
+    frames=Math.max(1,Math.floor(img.naturalWidth/frameSize));
+    sx=(Math.floor(now/135)%frames)*frameSize;
+  }
+
+  ctx.drawImage(img,sx,sy,frameSize,frameSize,x,y,size+1,size+1);
+}
+
+function drawRaisedLevel2Tile(img,x,y,size,height,fallback,tint=null,offset=0,alpha=1){
+  const topY=y-height+offset;
+
+  ctx.save();
+  ctx.globalAlpha=alpha;
+
+  if(height>0){
+    if(img.complete && img.naturalWidth){
+      ctx.drawImage(img,x,topY+size,size+1,height+1);
+    }else{
+      ctx.fillStyle=fallback;
+      ctx.fillRect(x,topY+size,size+1,height+1);
+    }
+
+    ctx.fillStyle="rgba(0,0,0,.34)";
+    ctx.fillRect(x,topY+size,size+1,height+1);
+  }
+
+  drawTexture(img,x,topY,size+1,size+1,fallback);
+
+  if(tint){
+    ctx.fillStyle=tint;
+    ctx.fillRect(x,topY,size+1,size+1);
+  }
+
+  ctx.fillStyle="rgba(255,255,255,.08)";
+  ctx.fillRect(x,topY,size+1,2);
+  ctx.fillStyle="rgba(0,0,0,.20)";
+  ctx.fillRect(x,topY+size-3,size+1,3);
+
+  ctx.restore();
+}
+
+function level2DoorRect(side,tile,ox,oy){
+  const x=side==="left" ? 1.1 : 30.9;
+  const y=7.1;
+  const w=tile*.95;
+  const h=w*(168/128);
+  return {
+    x:ox+x*tile,
+    y:oy+y*tile-h+tile*.9,
+    w,
+    h
+  };
+}
+
+function drawLevel2Door(side,tile,ox,oy){
+  const r=level2DoorRect(side,tile,ox,oy);
+  if(tex.door.complete && tex.door.naturalWidth){
+    ctx.drawImage(tex.door,r.x,r.y,r.w,r.h);
+  }else{
+    ctx.fillStyle="#76502f";
+    ctx.fillRect(r.x,r.y,r.w,r.h);
+  }
+}
+
+function drawLevel2Scene(tile,ox,oy,overview=false){
+  const now=Date.now();
+
+  ctx.fillStyle="#000";
+  ctx.fillRect(0,0,innerWidth,innerHeight);
+
+  for(let y=1;y<L2_ROWS-1;y++){
+    for(let x=5;x<L2_RIGHT_GROUND_START;x++){
+      drawAnimatedWater(ox+x*tile,oy+y*tile,tile,now);
+      ctx.fillStyle="rgba(0,55,74,.10)";
+      ctx.fillRect(ox+x*tile,oy+y*tile,tile+1,tile+1);
+    }
+  }
+
+  for(let y=1;y<L2_ROWS-1;y++){
+    for(let x=1;x<=L2_LEFT_GROUND_END;x++){
+      const px=ox+x*tile;
+      const py=oy+y*tile;
+      if(x===L2_LEFT_GROUND_END){
+        drawRaisedLevel2Tile(tex.wall,px,py,tile,tile*.26,"#555");
+      }else{
+        drawRaisedLevel2Tile(tex.dirt,px,py,tile,tile*.26,"#503b27");
+      }
+    }
+
+    for(let x=L2_RIGHT_GROUND_START;x<L2_COLS-1;x++){
+      const px=ox+x*tile;
+      const py=oy+y*tile;
+      if(x===L2_RIGHT_GROUND_START){
+        drawRaisedLevel2Tile(tex.wall,px,py,tile,tile*.26,"#555");
+      }else{
+        drawRaisedLevel2Tile(tex.dirt,px,py,tile,tile*.26,"#503b27");
+      }
+    }
+  }
+
+  for(let x=0;x<L2_COLS;x++){
+    drawRaisedLevel2Tile(tex.wall,ox+x*tile,oy,tile,tile*.30,"#555");
+    drawRaisedLevel2Tile(tex.wall,ox+x*tile,oy+(L2_ROWS-1)*tile,tile,tile*.30,"#555");
+  }
+
+  drawRaisedLevel2Tile(tex.wall,ox,oy+8*tile,tile,tile*.30,"#555");
+  drawRaisedLevel2Tile(tex.wall,ox+(L2_COLS-1)*tile,oy+8*tile,tile,tile*.30,"#555");
+
+  let entryOffset=0;
+  let entryAlpha=1;
+
+  if(level2Phase!=="gather" && level2ChallengeAt){
+    const p=Math.max(0,Math.min(1,(now-level2ChallengeAt)/700));
+    entryOffset=p*tile*.68;
+    entryAlpha=1-p*.92;
+  }
+
+  if(entryAlpha>.06){
+    for(let y=L2_BRIDGE_Y;y<L2_BRIDGE_Y+L2_BRIDGE_H;y++){
+      for(let x=L2_ENTRY_BRIDGE_X;x<L2_ENTRY_BRIDGE_X+L2_ENTRY_BRIDGE_W;x++){
+        drawRaisedLevel2Tile(
+          tex.spruce,
+          ox+x*tile,
+          oy+y*tile,
+          tile,
+          tile*.12,
+          "#5b351f",
+          null,
+          entryOffset,
+          entryAlpha
+        );
+      }
+    }
+  }
+
+  for(let y=L2_PLATFORM_Y;y<L2_PLATFORM_Y+L2_PLATFORM_H;y++){
+    for(let x=L2_PLATFORM_X;x<L2_PLATFORM_X+L2_PLATFORM_W;x++){
+      const state=level2OakState(x,y,now);
+      if(state==="fallen") continue;
+
+      let tint=null;
+      let offset=0;
+      let alpha=1;
+
+      if(state==="warning"){
+        const timing=level2Schedule.get(x+","+y);
+        const elapsed=now-level2ChallengeAt;
+        const pulse=.26+.22*(.5+.5*Math.sin(elapsed/95));
+        tint=`rgba(220,25,25,${pulse})`;
+      }
+
+      if(state==="falling"){
+        const timing=level2Schedule.get(x+","+y);
+        const p=Math.max(0,Math.min(1,(now-level2ChallengeAt-timing.fallAt)/700));
+        offset=p*tile*.78;
+        alpha=1-p;
+      }
+
+      drawRaisedLevel2Tile(
+        tex.oak,
+        ox+x*tile,
+        oy+y*tile,
+        tile,
+        tile*.27,
+        "#8a5a2b",
+        tint,
+        offset,
+        alpha
+      );
+    }
+  }
+
+  if(level2Phase==="exit" && level2ExitAt){
+    const p=Math.max(0,Math.min(1,(now-level2ExitAt)/900));
+    const offset=(1-p)*tile*.68;
+    const alpha=.2+p*.8;
+
+    for(let y=L2_BRIDGE_Y;y<L2_BRIDGE_Y+L2_BRIDGE_H;y++){
+      for(let x=L2_EXIT_BRIDGE_X;x<L2_EXIT_BRIDGE_X+L2_EXIT_BRIDGE_W;x++){
+        drawRaisedLevel2Tile(
+          tex.spruce,
+          ox+x*tile,
+          oy+y*tile,
+          tile,
+          tile*.12,
+          "#5b351f",
+          null,
+          offset,
+          alpha
+        );
+      }
+    }
+  }
+
+  drawLevel2Door("left",tile,ox,oy);
+  drawLevel2Door("right",tile,ox,oy);
+
+  const players=Object.values(remotePlayers).filter(p=>
+    !p.spectator && p.level===2 && p.x!=null && p.y!=null
+  );
+
+  if(currentUser?.role!=="spectator"){
+    const mine=players.find(p=>p.uid===auth.currentUser?.uid);
+    if(!mine){
+      players.push({
+        uid:auth.currentUser?.uid,
+        name:currentUser?.name,
+        avatar:avatarData,
+        host:currentUser?.role==="host",
+        x:localPos.x,
+        y:localPos.y,
+        level:2
+      });
+    }
+  }
+
+  for(const p of players){
+    const sx=ox+(+p.x)*tile;
+    const sy=oy+(+p.y)*tile-tile*.16;
+
+    if(overview){
+      drawSpectatorPlayer(
+        p,
+        sx,
+        sy,
+        Math.max(5,Math.min(10,tile*.35)),
+        Math.max(8,Math.min(11,tile*.48))
+      );
+    }else{
+      const r=18;
+      const im=getAvatarImage(p);
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(sx,sy,r,0,Math.PI*2);
+      ctx.clip();
+
+      if(im && im.complete && im.naturalWidth){
+        const side=Math.min(im.naturalWidth,im.naturalHeight);
+        ctx.drawImage(
+          im,
+          (im.naturalWidth-side)/2,
+          (im.naturalHeight-side)/2,
+          side,
+          side,
+          sx-r,
+          sy-r,
+          r*2,
+          r*2
+        );
+      }else{
+        ctx.fillStyle=p.host ? "#d6b25e" : "#b8b8bd";
+        ctx.fillRect(sx-r,sy-r,r*2,r*2);
+      }
+
+      ctx.restore();
+      ctx.beginPath();
+      ctx.arc(sx,sy,r+1,0,Math.PI*2);
+      ctx.strokeStyle="#fff";
+      ctx.lineWidth=2;
+      ctx.stroke();
+
+      ctx.font="700 12px system-ui";
+      ctx.textAlign="center";
+      ctx.textBaseline="bottom";
+      ctx.lineWidth=4;
+      ctx.strokeStyle="#000";
+      ctx.fillStyle="#fff";
+      ctx.strokeText(p.name||"",sx,sy-r-6);
+      ctx.fillText(p.name||"",sx,sy-r-6);
+    }
+  }
+}
+
+function renderLevel2(){
+  const d=Math.max(1,Math.min(2,devicePixelRatio||1));
+  ctx.setTransform(d,0,0,d,0,0);
+  ctx.imageSmoothingEnabled=false;
+
+  if(currentUser?.role==="spectator" && !followUid){
+    const margin=22;
+    const tile=Math.min(
+      (innerWidth-margin*2)/L2_COLS,
+      (innerHeight-margin*2)/L2_ROWS
+    );
+    const ox=(innerWidth-L2_COLS*tile)/2;
+    const oy=(innerHeight-L2_ROWS*tile)/2;
+    drawLevel2Scene(tile,ox,oy,true);
+    return;
+  }
+
+  let cameraX=localPos.x;
+  let cameraY=localPos.y;
+
+  if(currentUser?.role==="spectator" && followUid){
+    const p=remotePlayers[followUid];
+    if(p?.level===2 && p.x!=null && p.y!=null){
+      cameraX=+p.x;
+      cameraY=+p.y;
+    }
+  }
+
+  drawLevel2Scene(
+    TILE,
+    innerWidth/2-cameraX*TILE,
+    innerHeight/2-cameraY*TILE,
+    false
+  );
+}
+
+function applyLevel2GameState(game){
+  const oldPhase=level2Phase;
+  level2Phase=game.level2Phase||"gather";
+  level2ChallengeAt=Number(game.level2ChallengeAt||0);
+  level2ExitAt=Number(game.level2ExitAt||0);
+
+  if(oldPhase!==level2Phase){
+    if(level2Phase==="challenge" || level2Phase==="exit"){
+      try{
+        splashAudio.currentTime=0;
+        splashAudio.play().catch(()=>{});
+      }catch(_){}
+    }
+    level2LastPhase=level2Phase;
+  }
+}
+
+function allLevel2PlayersOnPlatform(){
+  const active=Object.values(remotePlayers).filter(p=>!p.spectator);
+  if(!active.length) return false;
+
+  return active.every(p=>
+    p.level===2 &&
+    p.x>=L2_PLATFORM_X &&
+    p.x<L2_PLATFORM_X+L2_PLATFORM_W &&
+    p.y>=L2_PLATFORM_Y &&
+    p.y<L2_PLATFORM_Y+L2_PLATFORM_H
+  );
+}
+
+function maybeAdvanceLevel2Host(){
+  if(currentLevel!==2 || currentUser?.role!=="host" || !currentGameCode) return;
+  if(level2PhaseWritePending) return;
+
+  if(level2Phase==="gather" && allLevel2PlayersOnPlatform()){
+    level2PhaseWritePending=true;
+    update(ref(db,`games/${currentGameCode}`),{
+      level2Phase:"challenge",
+      level2ChallengeAt:Date.now()
+    }).finally(()=>level2PhaseWritePending=false);
+    return;
+  }
+
+  if(
+    level2Phase==="challenge" &&
+    level2ChallengeAt &&
+    Date.now()-level2ChallengeAt>=L2_CHALLENGE_MS
+  ){
+    level2PhaseWritePending=true;
+    update(ref(db,`games/${currentGameCode}`),{
+      level2Phase:"exit",
+      level2ExitAt:Date.now()
+    }).finally(()=>level2PhaseWritePending=false);
+  }
+}
+
+function drownLevel2(){
+  if(level2Drowning || currentUser?.role==="spectator") return;
+
+  level2Drowning=true;
+  resetMovementInput();
+  $("drownOverlay").classList.add("show");
+
+  try{
+    splashAudio.currentTime=0;
+    splashAudio.play().catch(()=>{});
+  }catch(_){}
+
+  setTimeout(()=>{
+    localPos={
+      x:L2_PLATFORM_X+.5,
+      y:level2ProtectedRow+.5
+    };
+    moveTarget=null;
+    level2Drowning=false;
+    $("drownOverlay").classList.remove("show");
+
+    if(auth.currentUser && currentGameCode){
+      update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
+        x:+localPos.x.toFixed(3),
+        y:+localPos.y.toFixed(3),
+        level:2
+      }).catch(()=>{});
+    }
+  },1350);
+}
+
+async function startLevel2(game){
+  currentLevel=2;
+  gameStartedHandled=true;
+  playerFinished=false;
+  finishingLevel=false;
+  level2Drowning=false;
+  level2TransitionSent=false;
+  level2PhaseWritePending=false;
+
+  $("portalWait").classList.remove("show");
+  const portalText=$("portalWait").querySelector(".portalText");
+  if(portalText) portalText.textContent="Oczekiwanie aż wszyscy dojdą do drzwi";
+
+  portalAudio.pause();
+  ambientAudio.currentTime=0;
+  ambientAudio.play().catch(()=>{});
+
+  loginScreen.style.display="none";
+  homeScreen.style.display="none";
+  $("profileCorner").classList.add("hidden");
+  gameScreen.style.display="block";
+  document.body.classList.add("game-running");
+  document.body.style.overflow="hidden";
+
+  level2Seed=Number(game.level2Seed||game.startedAt||1);
+  buildLevel2Schedule(level2Seed);
+  applyLevel2GameState(game);
+
+  localPos={x:2.5,y:8};
+  spectatorPos={x:localPos.x,y:localPos.y};
+  moveTarget=null;
+  resetMovementInput();
+
+  $("levelBanner").querySelector(".big").textContent="Level 2";
+  $("levelBanner").querySelector(".small").textContent="Zapadająca platforma";
+  $("levelBanner").classList.add("show");
+  setTimeout(()=>$("levelBanner").classList.remove("show"),2600);
+
+  $("hostFunctions").classList.add("hidden");
+  $("finishWait").style.display="none";
+
+  if(currentUser.role==="spectator"){
+    $("joy").classList.add("hidden");
+    $("spectatorPanel").classList.remove("hidden");
+    $("spectateOptions").classList.add("hidden");
+    followUid="";
+  }else{
+    $("joy").classList.remove("hidden");
+    $("spectatorPanel").classList.add("hidden");
+
+    await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
+      level:2,
+      x:+localPos.x.toFixed(3),
+      y:+localPos.y.toFixed(3),
+      finishedLevel2:false
+    }).catch(()=>{});
+  }
+
+  resizeCanvas();
+}
+
 function renderGame(){
   requestAnimationFrame(renderGame);
-  if(gameScreen.style.display!=="block" || !maze) return;
+  if(gameScreen.style.display!=="block") return;
+
+  if(currentLevel===2){
+    renderLevel2();
+    maybeAdvanceLevel2Host();
+    return;
+  }
+
+  if(!maze) return;
 
   const d = Math.max(1, Math.min(2, devicePixelRatio || 1));
   ctx.setTransform(d,0,0,d,0,0);
@@ -1840,6 +2466,7 @@ function showGameToast(message){
 }
 
 async function startLevel1(game){
+  currentLevel=1;
   gameStartedHandled=true;
   playerFinished=false;
   finishingLevel=false;
@@ -1944,9 +2571,28 @@ function listenLevelPlayers(code){
 
     const done=active.filter(p=>p.finishedLevel1).length;
     $("finishCount").textContent=`${done}/${active.length}`;
-    if(playerFinished && active.length>0 && done===active.length){
+
+    if(currentLevel===1 && playerFinished && active.length>0 && done===active.length){
       const text=$("portalWait").querySelector(".portalText");
       if(text) text.textContent="Wszyscy dotarli do drzwi";
+    }
+
+    if(
+      currentLevel===1 &&
+      currentUser?.role==="host" &&
+      active.length>0 &&
+      done===active.length &&
+      !level2TransitionSent
+    ){
+      level2TransitionSent=true;
+      update(ref(db,`games/${currentGameCode}`),{
+        level:2,
+        level2Phase:"gather",
+        level2Seed:Math.floor(Math.random()*2147483647),
+        level2StartedAt:Date.now()
+      }).catch(()=>{
+        level2TransitionSent=false;
+      });
     }
   });
 }
@@ -2011,15 +2657,12 @@ function tryCreateGridTarget(mv){
 
 function updateMovement(){
   requestAnimationFrame(updateMovement);
-  if(gameScreen.style.display!=="block" || !maze) return;
+  if(gameScreen.style.display!=="block" || currentLevel===0) return;
 
   const mv=combinedMove();
 
-  if(currentUser?.role==="spectator"){
-    return;
-  }
-
-  if(playerFinished) return;
+  if(currentUser?.role==="spectator") return;
+  if(playerFinished || level2Drowning) return;
 
   tryCreateGridTarget(mv);
 
@@ -2038,6 +2681,25 @@ function updateMovement(){
     }
   }
 
+  if(currentLevel===2){
+    const tx=Math.floor(localPos.x);
+    const ty=Math.floor(localPos.y);
+
+    if(!level2CellSolid(tx,ty,Date.now())){
+      drownLevel2();
+      return;
+    }
+
+    if(Date.now()-lastPosWrite>95){
+      lastPosWrite=Date.now();
+      update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
+        x:+localPos.x.toFixed(3),
+        y:+localPos.y.toFixed(3),
+        level:2
+      }).catch(()=>{});
+    }
+    return;
+  }
 
   if(
     escapePathRevealed &&
@@ -2529,11 +3191,20 @@ function listenToLobby(code) {
     }
 
     const game = snap.val();
+    currentGameData=game;
     renderLobby(game.players || {});
 
     if (game.status === "started") {
       $("lobbyStatus").textContent = `Kod Gry: ${code} • Gra rozpoczęta`;
-      if (!gameStartedHandled) startLevel1(game);
+      const level=Number(game.level||1);
+
+      if(level===1 && currentLevel!==1){
+        startLevel1(game);
+      }else if(level===2 && currentLevel!==2){
+        startLevel2(game);
+      }else if(level===2){
+        applyLevel2GameState(game);
+      }
     }
   });
 }
@@ -2546,6 +3217,7 @@ async function addCurrentUserToGame(code) {
     host: currentUser.role === "host",
     spectator: currentUser.role === "spectator",
     avatar: currentUser.role === "spectator" ? null : (avatarData || null),
+    level: 0,
     joinedAt: Date.now()
   });
 
