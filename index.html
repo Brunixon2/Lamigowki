@@ -1101,8 +1101,9 @@ function drawMazeWall(img,x,y,size,fallback,gridX,gridY,intensity){
     return;
   }
 
-  const h=WALL_HEIGHT;
-  const dx=WALL_DEPTH_X;
+  const scale=size/TILE;
+  const h=WALL_HEIGHT*scale;
+  const dx=WALL_DEPTH_X*scale;
   const tx=x-dx;
   const ty=y-h;
   const southOpen=gridY>=ROWS-1 || maze?.[gridY+1]?.[gridX]!==1;
@@ -1118,19 +1119,18 @@ function drawMazeWall(img,x,y,size,fallback,gridX,gridY,intensity){
     ctx.lineTo(x+size,y+size);
     ctx.lineTo(x,y+size);
     ctx.closePath();
-
-    ctx.fillStyle=fallback;
-    ctx.fill();
     ctx.clip();
 
     if(img.complete && img.naturalWidth){
       ctx.drawImage(img,tx,ty+size,size+dx,h);
+    }else{
+      ctx.fillStyle=fallback;
+      ctx.fillRect(tx,ty+size,size+dx,h);
     }
 
-    ctx.fillStyle=`rgba(0,0,0,${Math.min(.72,.30+darkness*.66)})`;
+    ctx.fillStyle=`rgba(0,0,0,${Math.min(.62,.22+darkness*.52)})`;
     ctx.fillRect(tx,ty+size,size+dx,h);
-
-    ctx.fillStyle=`rgba(255,168,55,${warm*.38})`;
+    ctx.fillStyle=`rgba(255,168,55,${warm*.32})`;
     ctx.fillRect(tx,ty+size,size+dx,h);
     ctx.restore();
 
@@ -1141,8 +1141,8 @@ function drawMazeWall(img,x,y,size,fallback,gridX,gridY,intensity){
     ctx.lineTo(x+size,y+size);
     ctx.lineTo(x,y+size);
     ctx.closePath();
-    ctx.strokeStyle="rgba(0,0,0,.58)";
-    ctx.lineWidth=1.5;
+    ctx.strokeStyle="rgba(0,0,0,.5)";
+    ctx.lineWidth=Math.max(.5,1.5*scale);
     ctx.stroke();
     ctx.restore();
   }
@@ -1155,19 +1155,18 @@ function drawMazeWall(img,x,y,size,fallback,gridX,gridY,intensity){
     ctx.lineTo(x+size,y+size);
     ctx.lineTo(x+size,y);
     ctx.closePath();
-
-    ctx.fillStyle=fallback;
-    ctx.fill();
     ctx.clip();
 
     if(img.complete && img.naturalWidth){
       ctx.drawImage(img,tx+size,ty,dx,size+h);
+    }else{
+      ctx.fillStyle=fallback;
+      ctx.fillRect(tx+size,ty,dx,size+h);
     }
 
-    ctx.fillStyle=`rgba(0,0,0,${Math.min(.80,.42+darkness*.70)})`;
+    ctx.fillStyle=`rgba(0,0,0,${Math.min(.7,.30+darkness*.58)})`;
     ctx.fillRect(tx+size,ty,dx,size+h);
-
-    ctx.fillStyle=`rgba(255,154,45,${warm*.24})`;
+    ctx.fillStyle=`rgba(255,154,45,${warm*.22})`;
     ctx.fillRect(tx+size,ty,dx,size+h);
     ctx.restore();
 
@@ -1178,31 +1177,9 @@ function drawMazeWall(img,x,y,size,fallback,gridX,gridY,intensity){
     ctx.lineTo(x+size,y+size);
     ctx.lineTo(x+size,y);
     ctx.closePath();
-    ctx.strokeStyle="rgba(0,0,0,.64)";
-    ctx.lineWidth=1.5;
+    ctx.strokeStyle="rgba(0,0,0,.56)";
+    ctx.lineWidth=Math.max(.5,1.5*scale);
     ctx.stroke();
-    ctx.restore();
-  }
-
-  if(southOpen && eastOpen){
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(tx+size-2,ty+size-2);
-    ctx.lineTo(tx+size+2,ty+size-2);
-    ctx.lineTo(x+size+2,y+size+2);
-    ctx.lineTo(x+size-3,y+size+2);
-    ctx.closePath();
-    ctx.clip();
-
-    ctx.fillStyle=fallback;
-    ctx.fillRect(tx+size-4,ty+size-4,dx+10,h+10);
-
-    if(img.complete && img.naturalWidth){
-      ctx.drawImage(img,tx+size-4,ty+size-4,dx+10,h+10);
-    }
-
-    ctx.fillStyle=`rgba(0,0,0,${Math.min(.72,.36+darkness*.62)})`;
-    ctx.fillRect(tx+size-4,ty+size-4,dx+10,h+10);
     ctx.restore();
   }
 
@@ -1217,15 +1194,16 @@ function drawMazeWall(img,x,y,size,fallback,gridX,gridY,intensity){
   ctx.fillRect(tx,ty,size+1,size+1);
 
   ctx.fillStyle="rgba(255,255,255,.10)";
-  ctx.fillRect(tx,ty,size+1,2);
-  ctx.fillRect(tx,ty,2,size+1);
+  ctx.fillRect(tx,ty,size+1,Math.max(1,2*scale));
+  ctx.fillRect(tx,ty,Math.max(1,2*scale),size+1);
 
+  const edge=Math.max(1,4*scale);
   ctx.fillStyle="rgba(0,0,0,.23)";
-  ctx.fillRect(tx+size-4,ty,4,size+1);
-  ctx.fillRect(tx,ty+size-4,size+1,4);
+  ctx.fillRect(tx+size-edge,ty,edge,size+1);
+  ctx.fillRect(tx,ty+size-edge,size+1,edge);
 
   ctx.strokeStyle="rgba(0,0,0,.34)";
-  ctx.lineWidth=1;
+  ctx.lineWidth=Math.max(.5,1*scale);
   ctx.strokeRect(tx+.5,ty+.5,size,size);
 }
 
@@ -1600,13 +1578,13 @@ function renderSpectatorFollow(uid){
 }
 
 function renderSpectatorOverview(){
-  const d = Math.max(1, Math.min(2, devicePixelRatio || 1));
+  const d=Math.max(1,Math.min(2,devicePixelRatio||1));
   ctx.setTransform(d,0,0,d,0,0);
   ctx.imageSmoothingEnabled=false;
   ctx.fillStyle="#000";
   ctx.fillRect(0,0,innerWidth,innerHeight);
 
-  const margin=22;
+  const margin=26;
   const tile=Math.min(
     (innerWidth-margin*2)/COLS,
     (innerHeight-margin*2)/ROWS
@@ -1622,7 +1600,7 @@ function renderSpectatorOverview(){
     for(let x=0;x<COLS;x++){
       const px=ox+x*tile;
       const py=oy+y*tile;
-      const intensity=light[y][x] || 0;
+      const intensity=light[y][x]||0;
 
       if(intensity<=0){
         ctx.fillStyle="#000";
@@ -1630,28 +1608,41 @@ function renderSpectatorOverview(){
         continue;
       }
 
-      if(maze[y][x]){
-        const moss=((x*37+y*17)%23===0);
-        drawTexture(
-          moss?tex.moss:tex.wall,
-          px,py,tile+.5,tile+.5,
-          moss?"#43513b":"#555"
-        );
-      }else{
+      if(maze[y][x]===0){
         drawTexture(tex.dirt,px,py,tile+.5,tile+.5,"#503b27");
-      }
-
-      const darkness=Math.max(0,.78-intensity*.78);
-      if(darkness>0){
-        ctx.fillStyle=`rgba(0,0,0,${darkness})`;
+        const darkness=Math.max(0,.78-intensity*.78);
+        if(darkness>0){
+          ctx.fillStyle=`rgba(0,0,0,${darkness})`;
+          ctx.fillRect(px,py,tile+.5,tile+.5);
+        }
+        ctx.fillStyle=`rgba(255,183,72,${.05+intensity*.18})`;
+        ctx.fillRect(px,py,tile+.5,tile+.5);
+      }else{
+        ctx.fillStyle="#000";
         ctx.fillRect(px,py,tile+.5,tile+.5);
       }
-
-      ctx.fillStyle=`rgba(255,183,72,${.05+intensity*.18})`;
-      ctx.fillRect(px,py,tile+.5,tile+.5);
     }
   }
 
+  for(let y=0;y<ROWS;y++){
+    for(let x=0;x<COLS;x++){
+      if(maze[y][x]!==1) continue;
+
+      const intensity=light[y][x]||0;
+      if(intensity<=0) continue;
+
+      const px=ox+x*tile;
+      const py=oy+y*tile;
+      const moss=((x*37+y*17)%23===0);
+
+      drawMazeWall(
+        moss?tex.moss:tex.wall,
+        px,py,tile,
+        moss?"#43513b":"#555",
+        x,y,intensity
+      );
+    }
+  }
 
   ctx.save();
   ctx.strokeStyle="#d4d4d8";
@@ -1662,17 +1653,15 @@ function renderSpectatorOverview(){
   ctx.strokeRect(ox+2,oy+2,mapW-4,mapH-4);
   ctx.restore();
 
-
-  
   for(const p of Object.values(remotePlayers)){
     if(p.spectator || p.x==null || p.y==null) continue;
 
     const tx=Math.floor(+p.x);
     const ty=Math.floor(+p.y);
-    if((light?.[ty]?.[tx] || 0)<=0) continue;
+    if((light?.[ty]?.[tx]||0)<=0) continue;
 
-    const sx=ox+(+p.x)*tile;
-    const sy=oy+(+p.y)*tile;
+    const sx=ox+(+p.x)*tile-(WALL_DEPTH_X*(tile/TILE))*.12;
+    const sy=oy+(+p.y)*tile-(WALL_HEIGHT*(tile/TILE))*.12;
     const r=Math.max(5,Math.min(10,tile*.42));
     const fontSize=Math.max(8,Math.min(11,tile*.52));
 
