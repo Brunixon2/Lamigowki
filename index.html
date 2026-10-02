@@ -691,6 +691,25 @@ const GRID_STEP = 0.5;
 const GRID_STEP_DELAY = 92;
 const GRID_MOVE_SPEED = 0.105;
 
+function avatarStorageKey(){
+  return "lamiglowki_avatar_"+auth.currentUser.uid;
+}
+
+function loadSavedAvatar(){
+  if(!auth.currentUser || currentUser?.role==="spectator"){
+    avatarData=null;
+    return null;
+  }
+
+  try{
+    avatarData=localStorage.getItem(avatarStorageKey()) || null;
+  }catch(err){
+    console.error("Nie udało się odczytać PFP:",err);
+    avatarData=null;
+  }
+  return avatarData;
+}
+
 function updateProfileCorner(){
   if(!currentUser || currentUser.role==="spectator" || gameScreen.style.display==="block"){
     $("profileCorner").classList.add("hidden");
@@ -772,6 +791,9 @@ function generateMaze(seed){
   const rnd = seededRandom(seed);
 
 
+  
+
+  
   const g = Array.from({length:ROWS},()=>Array(COLS).fill(1));
 
   const LOGICAL_COLS = 15;
@@ -864,6 +886,7 @@ function generateMaze(seed){
   }
 
 
+  
   const roomMidX = roomLeft + Math.floor(ROOM_W/2);
   const roomMidY = roomTop + Math.floor(ROOM_H/2);
 
@@ -933,45 +956,62 @@ function pickLetterCells(rnd,count){
       const fromStart=Math.abs(x-START_X)+Math.abs(y-START_Y);
       const fromExit=Math.abs(x-exitCell.x)+Math.abs(y-exitCell.y);
 
-      if(fromStart<10 || fromExit<7) continue;
+
+      if(fromStart<8 || fromExit<5) continue;
 
       candidates.push({
         x,
         y,
-        score:fromStart+rnd()*10
+        score:fromStart + rnd()*8
       });
     }
   }
+
 
   for(let i=candidates.length-1;i>0;i--){
     const j=Math.floor(rnd()*(i+1));
     [candidates[i],candidates[j]]=[candidates[j],candidates[i]];
   }
-
   candidates.sort((a,b)=>b.score-a.score);
 
-  function chooseWithDistance(minDistance){
-    const selected=[];
+  const picked=[];
+
+
+  
+  const MIN_DISTANCE=8;
+
+  for(const c of candidates){
+    const farEnough=picked.every(p=>{
+      const dx=p.x-c.x;
+      const dy=p.y-c.y;
+      return Math.hypot(dx,dy)>=MIN_DISTANCE;
+    });
+
+    if(farEnough){
+      picked.push({x:c.x,y:c.y});
+      if(picked.length===count) break;
+    }
+  }
+
+
+  
+  if(picked.length<count){
+    const FALLBACK_DISTANCE=6;
 
     for(const c of candidates){
-      if(selected.every(p=>Math.hypot(p.x-c.x,p.y-c.y)>=minDistance)){
-        selected.push({x:c.x,y:c.y});
-        if(selected.length===count) return selected;
-      }
+      if(picked.length===count) break;
+      if(picked.some(p=>p.x===c.x && p.y===c.y)) continue;
+
+      const farEnough=picked.every(p=>{
+        const dx=p.x-c.x;
+        const dy=p.y-c.y;
+        return Math.hypot(dx,dy)>=FALLBACK_DISTANCE;
+      });
+
+      if(farEnough) picked.push({x:c.x,y:c.y});
     }
-
-    return selected;
   }
 
-  let picked=chooseWithDistance(14);
-
-  if(picked.length<count){
-    picked=chooseWithDistance(12);
-  }
-
-  if(picked.length<count){
-    picked=chooseWithDistance(10);
-  }
 
   for(let i=picked.length-1;i>0;i--){
     const j=Math.floor(rnd()*(i+1));
@@ -1050,21 +1090,14 @@ function drawMazeWall(img,x,y,size,fallback,gridX,gridY,intensity){
     ctx.clip();
 
     if(img.complete && img.naturalWidth){
-      const sh=Math.max(1,Math.floor(img.naturalHeight*.36));
-      ctx.drawImage(
-        img,
-        0,img.naturalHeight-sh,img.naturalWidth,sh,
-        tx,ty+size,size+dx,h
-      );
+      ctx.translate(tx,ty+size);
+      ctx.transform(1,0,dx/h,1,0,0);
+      ctx.drawImage(img,0,0,img.naturalWidth,img.naturalHeight,0,0,size,h);
     }else{
       ctx.fillStyle=fallback;
       ctx.fillRect(tx,ty+size,size+dx,h);
     }
 
-    ctx.fillStyle=`rgba(0,0,0,${Math.min(.66,.27+darkness*.58)})`;
-    ctx.fillRect(tx,ty+size,size+dx,h);
-    ctx.fillStyle=`rgba(255,168,55,${warm*.34})`;
-    ctx.fillRect(tx,ty+size,size+dx,h);
     ctx.restore();
 
     ctx.save();
@@ -1074,7 +1107,11 @@ function drawMazeWall(img,x,y,size,fallback,gridX,gridY,intensity){
     ctx.lineTo(x+size,y+size);
     ctx.lineTo(x,y+size);
     ctx.closePath();
-    ctx.strokeStyle="rgba(0,0,0,.62)";
+    ctx.fillStyle=`rgba(0,0,0,${Math.min(.72,.34+darkness*.7)})`;
+    ctx.fill();
+    ctx.fillStyle=`rgba(255,168,55,${warm*.42})`;
+    ctx.fill();
+    ctx.strokeStyle="rgba(0,0,0,.55)";
     ctx.lineWidth=1.5;
     ctx.stroke();
     ctx.restore();
@@ -1091,21 +1128,14 @@ function drawMazeWall(img,x,y,size,fallback,gridX,gridY,intensity){
     ctx.clip();
 
     if(img.complete && img.naturalWidth){
-      const sw=Math.max(1,Math.floor(img.naturalWidth*.36));
-      ctx.drawImage(
-        img,
-        img.naturalWidth-sw,0,sw,img.naturalHeight,
-        tx+size,ty,dx,size+h
-      );
+      ctx.translate(tx+size,ty);
+      ctx.transform(dx/h,1,0,1,0,0);
+      ctx.drawImage(img,0,0,img.naturalWidth,img.naturalHeight,0,0,h,size);
     }else{
       ctx.fillStyle=fallback;
-      ctx.fillRect(tx+size,ty,dx,size+h);
+      ctx.fillRect(tx+size,ty,h,size);
     }
 
-    ctx.fillStyle=`rgba(0,0,0,${Math.min(.72,.34+darkness*.62)})`;
-    ctx.fillRect(tx+size,ty,dx,size+h);
-    ctx.fillStyle=`rgba(255,154,45,${warm*.25})`;
-    ctx.fillRect(tx+size,ty,dx,size+h);
     ctx.restore();
 
     ctx.save();
@@ -1115,9 +1145,26 @@ function drawMazeWall(img,x,y,size,fallback,gridX,gridY,intensity){
     ctx.lineTo(x+size,y+size);
     ctx.lineTo(x+size,y);
     ctx.closePath();
-    ctx.strokeStyle="rgba(0,0,0,.66)";
+    ctx.fillStyle=`rgba(0,0,0,${Math.min(.8,.46+darkness*.72)})`;
+    ctx.fill();
+    ctx.fillStyle=`rgba(255,154,45,${warm*.27})`;
+    ctx.fill();
+    ctx.strokeStyle="rgba(0,0,0,.62)";
     ctx.lineWidth=1.5;
     ctx.stroke();
+    ctx.restore();
+  }
+
+  if(southOpen){
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x,y+size);
+    ctx.lineTo(x+size,y+size);
+    ctx.lineTo(x+size+5,y+size+5);
+    ctx.lineTo(x+5,y+size+5);
+    ctx.closePath();
+    ctx.fillStyle="rgba(0,0,0,.30)";
+    ctx.fill();
     ctx.restore();
   }
 
@@ -1434,56 +1481,6 @@ function drawSpectatorPlayer(p,sx,sy,r,nameSize=11){
   ctx.fillText(label,sx,sy-r-4);
 }
 
-function renderLitWorld(cx,cy,minX,maxX,minY,maxY,light){
-  for(let y=minY;y<=maxY;y++){
-    for(let x=minX;x<=maxX;x++){
-      const p=tileScreen(x,y,cx,cy);
-      const intensity=light[y][x]||0;
-
-      if(intensity<=0){
-        ctx.fillStyle="#000";
-        ctx.fillRect(p.x,p.y,TILE+1,TILE+1);
-        continue;
-      }
-
-      if(maze[y][x]===0){
-        drawTexture(tex.dirt,p.x,p.y,TILE+1,TILE+1,"#503b27");
-
-        const darkness=Math.max(0,.78-intensity*.78);
-        if(darkness>0){
-          ctx.fillStyle=`rgba(0,0,0,${darkness})`;
-          ctx.fillRect(p.x,p.y,TILE+1,TILE+1);
-        }
-
-        ctx.fillStyle=`rgba(255,183,72,${.05+intensity*.18})`;
-        ctx.fillRect(p.x,p.y,TILE+1,TILE+1);
-      }else{
-        ctx.fillStyle="#000";
-        ctx.fillRect(p.x,p.y,TILE+1,TILE+1);
-      }
-    }
-  }
-
-  for(let y=minY;y<=maxY;y++){
-    for(let x=minX;x<=maxX;x++){
-      if(maze[y][x]!==1) continue;
-
-      const intensity=light[y][x]||0;
-      if(intensity<=0) continue;
-
-      const p=tileScreen(x,y,cx,cy);
-      const moss=((x*37+y*17)%23===0);
-
-      drawMazeWall(
-        moss?tex.moss:tex.wall,
-        p.x,p.y,TILE,
-        moss?"#43513b":"#555",
-        x,y,intensity
-      );
-    }
-  }
-}
-
 function renderSpectatorFollow(uid){
   const target=remotePlayers[uid];
   if(!target || target.spectator || target.x==null || target.y==null){
@@ -1506,7 +1503,38 @@ function renderSpectatorFollow(uid){
   const maxY=Math.min(ROWS-1,Math.ceil((cy+innerHeight/2)/TILE)+1);
   const light=buildLightMap();
 
-  renderLitWorld(cx,cy,minX,maxX,minY,maxY,light);
+  for(let y=minY;y<=maxY;y++){
+    for(let x=minX;x<=maxX;x++){
+      const p=tileScreen(x,y,cx,cy);
+      const intensity=light[y][x]||0;
+
+      if(intensity<=0){
+        ctx.fillStyle="#000";
+        ctx.fillRect(p.x,p.y,TILE+1,TILE+1);
+        continue;
+      }
+
+      if(maze[y][x]){
+        const moss=((x*37+y*17)%23===0);
+        drawMazeWall(
+          moss?tex.moss:tex.wall,
+          p.x,p.y,TILE,
+          moss?"#43513b":"#555",
+          x,y,intensity
+        );
+      }else{
+        drawTexture(tex.dirt,p.x,p.y,TILE+1,TILE+1,"#503b27");
+        const darkness=Math.max(0,.78-intensity*.78);
+        if(darkness>0){
+          ctx.fillStyle=`rgba(0,0,0,${darkness})`;
+          ctx.fillRect(p.x,p.y,TILE+1,TILE+1);
+        }
+        ctx.fillStyle=`rgba(255,183,72,${.05+intensity*.18})`;
+        ctx.fillRect(p.x,p.y,TILE+1,TILE+1);
+      }
+    }
+  }
+
 
   for(const p of Object.values(remotePlayers)){
     if(p.spectator || p.x==null || p.y==null) continue;
@@ -1584,6 +1612,7 @@ function renderSpectatorOverview(){
   ctx.restore();
 
 
+  
   for(const p of Object.values(remotePlayers)){
     if(p.spectator || p.x==null || p.y==null) continue;
 
@@ -1631,7 +1660,38 @@ function renderGame(){
   const spectatorFree = false;
   const light = buildLightMap();
 
-  renderLitWorld(cx,cy,minX,maxX,minY,maxY,light);
+  for(let y=minY;y<=maxY;y++){
+    for(let x=minX;x<=maxX;x++){
+      const p=tileScreen(x,y,cx,cy);
+      let intensity = spectatorFree ? .72 : (light[y][x] || 0);
+
+
+      if(intensity<=0){
+        ctx.fillStyle="#000";
+        ctx.fillRect(p.x,p.y,TILE+1,TILE+1);
+        continue;
+      }
+
+      if(maze[y][x]){
+        const moss=((x*37+y*17)%23===0);
+        drawMazeWall(
+          moss?tex.moss:tex.wall,
+          p.x,p.y,TILE,
+          moss?"#43513b":"#555",
+          x,y,intensity
+        );
+      }else{
+        drawTexture(tex.dirt,p.x,p.y,TILE+1,TILE+1,"#503b27");
+        const darkness=Math.max(0,.78-intensity*.78);
+        if(darkness>0){
+          ctx.fillStyle=`rgba(0,0,0,${darkness})`;
+          ctx.fillRect(p.x,p.y,TILE+1,TILE+1);
+        }
+        ctx.fillStyle=`rgba(255,183,72,${.05+intensity*.18})`;
+        ctx.fillRect(p.x,p.y,TILE+1,TILE+1);
+      }
+    }
+  }
 
 
   const door=tileScreen(exitCell.x,exitCell.y,cx,cy);
@@ -1663,6 +1723,7 @@ function renderGame(){
   }
 
 
+  
   drawLetterNotes(cx,cy,light,spectatorFree);
 
 
@@ -1676,7 +1737,7 @@ function renderGame(){
       x:localPos.x,
       y:localPos.y,
       name:currentUser.name,
-      avatar:avatarData || null,
+      avatar:avatarData || localStorage.getItem("lamiglowki_avatar_"+auth.currentUser.uid) || null,
       spectator:false,
       finishedLevel1:playerFinished
     };
@@ -1950,7 +2011,7 @@ function joyMove(e){
 
 joy.addEventListener("pointerdown",e=>{
 
-
+  
   if(e.pointerType==="mouse" && e.button!==0) return;
 
   joyPointer=e.pointerId;
@@ -2011,6 +2072,7 @@ addEventListener("keydown",e=>{
     target?.isContentEditable;
 
 
+  
   if(
     gameScreen.style.display==="block" &&
     !typing &&
@@ -2145,12 +2207,16 @@ async function ensureAvatar(){
     return;
   }
 
-  avatarData=null;
-  avatarImageCache.clear();
+  loadSavedAvatar();
 
   const preview=$("avatarPreview");
-  preview.removeAttribute("src");
   preview.classList.remove("hidden");
+
+  if(avatarData){
+    preview.src=avatarData;
+  }else{
+    preview.removeAttribute("src");
+  }
 
   updateProfileCorner();
   $("avatarModal").classList.remove("hidden");
@@ -2224,7 +2290,16 @@ $("saveAvatar").onclick=async()=>{
     return;
   }
 
+  try{
+    localStorage.setItem(avatarStorageKey(),avatarData);
+  }catch(err){
+    console.error(err);
+    alert("Nie udało się zapisać zdjęcia profilowego.");
+    return;
+  }
+
   updateProfileCorner();
+
 
   if(currentGameCode){
     try{
@@ -2232,7 +2307,7 @@ $("saveAvatar").onclick=async()=>{
         avatar:avatarData
       });
     }catch(err){
-      console.error(err);
+      console.error("Nie udało się zsynchronizować PFP z lobby:",err);
     }
   }
 
@@ -2266,8 +2341,8 @@ $("profileChange").addEventListener("click",()=>{
 });
 
 $("profileRemove").addEventListener("click",async()=>{
+  try{ localStorage.removeItem(avatarStorageKey()); }catch(_){}
   avatarData=null;
-  avatarImageCache.clear();
   $("avatarPreview").removeAttribute("src");
   updateProfileCorner();
 
@@ -2277,7 +2352,7 @@ $("profileRemove").addEventListener("click",async()=>{
         avatar:null
       });
     }catch(err){
-      console.error(err);
+      console.error("Nie udało się usunąć PFP z lobby:",err);
     }
   }
 
@@ -2422,7 +2497,7 @@ $("loginForm").addEventListener("submit", async e => {
       homeScreen.style.display = "block";
       document.body.style.overflow = "auto";
       $("welcome").textContent = "Zalogowano jako: " + currentUser.name;
-      avatarData=null;
+      loadSavedAvatar();
       updateProfileCorner();
 
       if (currentUser.role === "host") {
