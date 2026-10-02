@@ -180,6 +180,27 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
   box-shadow:0 3px 12px #000a;
   pointer-events:none;
 }
+#jumpButton{
+  position:absolute;
+  z-index:25;
+  right:max(28px,env(safe-area-inset-right));
+  bottom:max(34px,env(safe-area-inset-bottom));
+  width:82px;
+  height:82px;
+  border-radius:50%;
+  border:2px solid #ffffff70;
+  background:#171717c7;
+  color:#fff;
+  font:900 15px/1 system-ui,-apple-system,"Segoe UI",sans-serif;
+  box-shadow:inset 0 0 18px #0009,0 4px 18px #0008;
+  touch-action:none;
+}
+#jumpButton:active{
+  transform:scale(.94);
+}
+#jumpButton.hidden{
+  display:none!important;
+}
 #exitModal,#avatarModal{
   position:fixed;
   z-index:60;
@@ -606,6 +627,7 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
 </div>
   </div>
 <div id="joy"><div id="joyKnob"></div></div>
+  <button id="jumpButton" class="hidden">SKOK</button>
   <div id="spectatorPanel" class="hidden">
     <button id="spectateToggle">Oglądaj gracza</button>
     <div id="spectateOptions" class="hidden">
@@ -732,11 +754,15 @@ const L2_BRIDGE_Y = 7;
 const L2_BRIDGE_H = 2;
 const L2_ENTRY_BRIDGE_X = 5;
 const L2_ENTRY_BRIDGE_W = 6;
-const L2_EXIT_BRIDGE_X = 5;
+const L2_EXIT_BRIDGE_X = L2_PLATFORM_X+L2_PLATFORM_W;
 const L2_EXIT_BRIDGE_W = L2_RIGHT_GROUND_START-L2_EXIT_BRIDGE_X;
-const L2_EXIT_BRIDGE_Y = 1;
-const L2_EXIT_BRIDGE_H = L2_ROWS-2;
-const L2_TORCH_RADIUS = LIGHT_RADIUS/2.5;
+const L2_EXIT_BRIDGE_Y = L2_PLATFORM_Y;
+const L2_EXIT_BRIDGE_H = L2_PLATFORM_H;
+const L2_MOVE_SPEED = 3.6;
+const L2_JUMP_SPEED_MULTIPLIER = 1.18;
+const L2_JUMP_DURATION = 520;
+const L2_TORCH_RADIUS = LIGHT_RADIUS;
+const L2_TORCH_POWER = 0.4;
 const L2_TORCHES = [
   {x:4.5,y:2.5,visible:true},
   {x:29.5,y:2.5,visible:true},
@@ -780,6 +806,10 @@ let level2Drowning = false;
 let level2TransitionSent = false;
 let level2PhaseWritePending = false;
 let level2LastPhase = "";
+let level2Jumping = false;
+let level2JumpStart = 0;
+let level2LastMoveFrame = 0;
+let level2ExitScreenRect = null;
 const avatarImageCache = new Map();
 
 let moveTarget = null;
@@ -1787,6 +1817,10 @@ function l2InsideExitBridge(x,y){
     y<L2_EXIT_BRIDGE_Y+L2_EXIT_BRIDGE_H;
 }
 
+function l2InsideFinalSpruceDeck(x,y){
+  return l2InsideOak(x,y) || l2InsideExitBridge(x,y);
+}
+
 function l2InsideLeftGround(x,y){
   return x>=1 && x<=L2_LEFT_GROUND_END && y>=1 && y<L2_ROWS-1;
 }
@@ -1873,7 +1907,7 @@ function level2CellSolid(tx,ty,now=Date.now()){
 
   if(l2InsideLeftGround(tx,ty) || l2InsideRightGround(tx,ty)) return true;
 
-  if(level2ExitBridgeReady(now) && l2InsideExitBridge(tx,ty)) return true;
+  if(level2ExitBridgeReady(now) && l2InsideFinalSpruceDeck(tx,ty)) return true;
 
   if(l2InsideEntryBridge(tx,ty)){
     if(level2Phase==="gather") return true;
@@ -1895,6 +1929,70 @@ function canMoveLevel2(x,y){
   return [
     [x-r,y-r],[x+r,y-r],[x-r,y+r],[x+r,y+r]
   ].every(([px,py])=>level2CellSolid(Math.floor(px),Math.floor(py),now));
+}
+
+function canMoveLevel2InAir(x,y){
+  const r=.24;
+  return [
+    [x-r,y-r],[x+r,y-r],[x-r,y+r],[x+r,y+r]
+  ].every(([px,py])=>{
+    const tx=Math.floor(px);
+    const ty=Math.floor(py);
+    return tx>=1 && tx<L2_COLS-1 && ty>=1 && ty<L2_ROWS-1;
+  });
+}
+
+function level2JumpLift(now=performance.now()){
+  if(!level2Jumping) return 0;
+  const p=Math.max(0,Math.min(1,(now-level2JumpStart)/L2_JUMP_DURATION));
+  return Math.sin(p*Math.PI);
+}
+
+function startLevel2Jump(){
+  if(
+    currentLevel!==2 ||
+    currentUser?.role==="spectator" ||
+    playerFinished ||
+    level2Drowning ||
+    level2Jumping ||
+    !canMoveLevel2(localPos.x,localPos.y)
+  ) return;
+
+  level2Jumping=true;
+  level2JumpStart=performance.now();
+}
+
+function updateLevel2Jump(now){
+  if(!level2Jumping) return;
+
+  if(now-level2JumpStart>=L2_JUMP_DURATION){
+    level2Jumping=false;
+    level2JumpStart=0;
+
+    if(!canMoveLevel2(localPos.x,localPos.y)){
+      drownLevel2();
+    }
+  }
+}
+
+function moveLevel2Continuous(mv,dt){
+  const len=Math.hypot(mv.x,mv.y);
+  if(len<.08) return;
+
+  const speed=L2_MOVE_SPEED*(level2Jumping?L2_JUMP_SPEED_MULTIPLIER:1);
+  const dx=mv.x*speed*dt;
+  const dy=mv.y*speed*dt;
+  const canOccupy=level2Jumping ? canMoveLevel2InAir : canMoveLevel2;
+
+  const nx=localPos.x+dx;
+  if(canOccupy(nx,localPos.y)){
+    localPos.x=nx;
+  }
+
+  const ny=localPos.y+dy;
+  if(canOccupy(localPos.x,ny)){
+    localPos.y=ny;
+  }
 }
 
 function drawAnimatedWater(x,y,size,now){
@@ -1990,6 +2088,7 @@ function drawLevel2Door(side,tile,ox,oy,intensity=1){
   if(intensity<=0) return;
 
   const r=level2DoorRect(side,tile,ox,oy);
+  if(side==="right") level2ExitScreenRect={x:r.x,y:r.y,w:r.w,h:r.h};
   const doorImg=side==="right" ? tex.doorUnlocked : tex.door;
 
   ctx.save();
@@ -2035,7 +2134,7 @@ function buildLevel2LightMap(){
   const light=Array.from({length:L2_ROWS},()=>Array(L2_COLS).fill(0));
   const sources=collectLevel2TorchSources();
 
-  const addSource=(sx,sy,radius)=>{
+  const addSource=(sx,sy,radius,power=1)=>{
     const minX=Math.max(0,Math.floor(sx-radius));
     const maxX=Math.min(L2_COLS-1,Math.ceil(sx+radius));
     const minY=Math.max(0,Math.floor(sy-radius));
@@ -2046,20 +2145,24 @@ function buildLevel2LightMap(){
         const dx=(x+.5)-sx;
         const dy=(y+.5)-sy;
         const d=Math.hypot(dx,dy);
+
         if(d>radius) continue;
 
-        const strength=Math.max(.12,1-d/(radius+1));
+        const t=Math.max(0,1-d/radius);
+        const fade=t*t*(3-2*t);
+        const strength=fade*power;
+
         light[y][x]=Math.max(light[y][x],strength);
       }
     }
   };
 
   for(const s of sources){
-    addSource(s.x,s.y,LIGHT_RADIUS);
+    addSource(s.x,s.y,LIGHT_RADIUS,1);
   }
 
   for(const t of L2_TORCHES){
-    addSource(t.x,t.y,L2_TORCH_RADIUS);
+    addSource(t.x,t.y,L2_TORCH_RADIUS,L2_TORCH_POWER);
   }
 
   return light;
@@ -2108,8 +2211,8 @@ function drawLevel2Torch(tile,ox,oy,t){
   const y=oy+t.y*tile-h*.72;
 
   ctx.save();
-  ctx.shadowColor="rgba(255,166,55,.65)";
-  ctx.shadowBlur=tile*.14;
+  ctx.shadowColor="rgba(255,166,55,.32)";
+  ctx.shadowBlur=tile*.08;
   ctx.drawImage(img,sx,sy,frameSize,frameSize,x,y,w,h);
   ctx.restore();
 }
@@ -2273,6 +2376,23 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
     const offset=(1-p)*tile*.68;
     const alpha=.2+p*.8;
 
+    for(let y=L2_PLATFORM_Y;y<L2_PLATFORM_Y+L2_PLATFORM_H;y++){
+      for(let x=L2_PLATFORM_X;x<L2_PLATFORM_X+L2_PLATFORM_W;x++){
+        drawRaisedLevel2Tile(
+          tex.spruce,
+          ox+x*tile,
+          oy+y*tile,
+          tile,
+          tile*.12,
+          "#5b351f",
+          null,
+          offset,
+          alpha,
+          light?.[y]?.[x]||0
+        );
+      }
+    }
+
     for(let y=L2_EXIT_BRIDGE_Y;y<L2_EXIT_BRIDGE_Y+L2_EXIT_BRIDGE_H;y++){
       for(let x=L2_EXIT_BRIDGE_X;x<L2_EXIT_BRIDGE_X+L2_EXIT_BRIDGE_W;x++){
         drawRaisedLevel2Tile(
@@ -2379,7 +2499,13 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
     if((light?.[ty]?.[tx]||0)<=0) continue;
 
     const sx=ox+(+p.x)*tile;
-    const sy=oy+(+p.y)*tile-tile*.16;
+    const isLocalJump=
+      currentLevel===2 &&
+      level2Jumping &&
+      p.uid===auth.currentUser?.uid &&
+      currentUser?.role!=="spectator";
+    const jumpOffset=isLocalJump ? level2JumpLift()*tile*.72 : 0;
+    const sy=oy+(+p.y)*tile-tile*.16-jumpOffset;
 
     if(overview){
       drawSpectatorPlayer(
@@ -2574,6 +2700,9 @@ async function startLevel2(game){
   playerFinished=false;
   finishingLevel=false;
   level2Drowning=false;
+  level2Jumping=false;
+  level2JumpStart=0;
+  level2LastMoveFrame=performance.now();
   level2TransitionSent=false;
   level2PhaseWritePending=false;
 
@@ -2617,11 +2746,13 @@ async function startLevel2(game){
 
   if(currentUser.role==="spectator"){
     $("joy").classList.add("hidden");
+    $("jumpButton").classList.add("hidden");
     $("spectatorPanel").classList.remove("hidden");
     $("spectateOptions").classList.add("hidden");
     followUid="";
   }else{
     $("joy").classList.remove("hidden");
+    $("jumpButton").classList.remove("hidden");
     $("spectatorPanel").classList.add("hidden");
 
     await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
@@ -2798,6 +2929,7 @@ function showGameToast(message){
 
 async function startLevel1(game){
   currentLevel=1;
+  $("jumpButton").classList.add("hidden");
   gameStartedHandled=true;
   playerFinished=false;
   finishingLevel=false;
@@ -2902,6 +3034,17 @@ function listenLevelPlayers(code){
 
     const done=active.filter(p=>p.finishedLevel1).length;
     $("finishCount").textContent=`${done}/${active.length}`;
+
+    if(currentLevel===2 && playerFinished && active.length>0){
+      const done2=active.filter(p=>p.finishedLevel2).length;
+      const text=$("portalWait").querySelector(".portalText");
+
+      if(text){
+        text.textContent=done2===active.length
+          ? "Wszyscy przeszli przez drzwi"
+          : `Oczekiwanie na graczy: ${done2}/${active.length}`;
+      }
+    }
 
     if(currentLevel===1 && active.length>0 && done===active.length){
       const text=$("portalWait").querySelector(".portalText");
@@ -3065,14 +3208,58 @@ function tryCreateGridTarget(mv){
   return true;
 }
 
-function updateMovement(){
+function updateMovement(now=performance.now()){
   requestAnimationFrame(updateMovement);
-  if(gameScreen.style.display!=="block" || currentLevel===0) return;
+  if(gameScreen.style.display!=="block" || currentLevel===0){
+    level2LastMoveFrame=now;
+    return;
+  }
 
   const mv=combinedMove();
 
-  if(currentUser?.role==="spectator") return;
-  if(playerFinished || level2Drowning) return;
+  if(currentUser?.role==="spectator"){
+    level2LastMoveFrame=now;
+    return;
+  }
+
+  if(playerFinished || level2Drowning){
+    level2LastMoveFrame=now;
+    return;
+  }
+
+  if(currentLevel===2){
+    const dt=Math.min(.04,Math.max(0,(now-level2LastMoveFrame)/1000 || 0));
+    level2LastMoveFrame=now;
+
+    updateLevel2Jump(now);
+    if(level2Drowning) return;
+
+    moveLevel2Continuous(mv,dt);
+
+    if(!level2Jumping && !canMoveLevel2(localPos.x,localPos.y)){
+      drownLevel2();
+      return;
+    }
+
+    if(
+      level2ExitBridgeReady(Date.now()) &&
+      nearLevel2ExitDoor()
+    ){
+      enterLevel2Portal();
+      return;
+    }
+
+    if(Date.now()-lastPosWrite>80){
+      lastPosWrite=Date.now();
+      update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
+        x:+localPos.x.toFixed(3),
+        y:+localPos.y.toFixed(3),
+        level:2
+      }).catch(()=>{});
+    }
+
+    return;
+  }
 
   tryCreateGridTarget(mv);
 
@@ -3089,23 +3276,6 @@ function updateMovement(){
       localPos.x+=dx/dist*GRID_MOVE_SPEED;
       localPos.y+=dy/dist*GRID_MOVE_SPEED;
     }
-  }
-
-  if(currentLevel===2){
-    if(!canMoveLevel2(localPos.x,localPos.y)){
-      drownLevel2();
-      return;
-    }
-
-    if(Date.now()-lastPosWrite>95){
-      lastPosWrite=Date.now();
-      update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
-        x:+localPos.x.toFixed(3),
-        y:+localPos.y.toFixed(3),
-        level:2
-      }).catch(()=>{});
-    }
-    return;
   }
 
   if(
@@ -3176,6 +3346,12 @@ joy.addEventListener("lostpointercapture",()=>{
   knob.style.transform="";
 });
 
+$("jumpButton").addEventListener("pointerdown",e=>{
+  if(e.pointerType==="mouse" && e.button!==0) return;
+  e.preventDefault();
+  startLevel2Jump();
+});
+
 
 gameScreen.addEventListener("contextmenu",e=>{
   e.preventDefault();
@@ -3216,6 +3392,17 @@ addEventListener("keydown",e=>{
   if(
     gameScreen.style.display==="block" &&
     !typing &&
+    e.code==="Space" &&
+    currentLevel===2
+  ){
+    startLevel2Jump();
+    e.preventDefault();
+    return;
+  }
+
+  if(
+    gameScreen.style.display==="block" &&
+    !typing &&
     ["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","KeyW","KeyA","KeyS","KeyD"].includes(e.code)
   ){
     pressed.add(e.code);
@@ -3232,6 +3419,58 @@ addEventListener("keyup",e=>{
 
 function nearExit(){
   return Math.hypot(localPos.x-(exitCell.x+.5),localPos.y-(exitCell.y+.5))<=1.6;
+}
+
+function nearLevel2ExitDoor(){
+  return (
+    currentLevel===2 &&
+    level2Phase==="exit" &&
+    level2ExitBridgeReady(Date.now()) &&
+    localPos.x>=31.15 &&
+    localPos.x<=32.8 &&
+    localPos.y>=6.15 &&
+    localPos.y<=8.85
+  );
+}
+
+async function enterLevel2Portal(){
+  if(
+    currentLevel!==2 ||
+    currentUser?.role==="spectator" ||
+    playerFinished ||
+    finishingLevel ||
+    !level2ExitBridgeReady(Date.now()) ||
+    !nearLevel2ExitDoor()
+  ) return;
+
+  finishingLevel=true;
+  playerFinished=true;
+  level2Jumping=false;
+  resetMovementInput();
+
+  const text=$("portalWait").querySelector(".portalText");
+  if(text) text.textContent="Oczekiwanie aż wszyscy przejdą przez drzwi";
+  $("portalWait").classList.add("show");
+
+  level2Audio.pause();
+
+  try{
+    portalAudio.currentTime=0;
+    portalAudio.play().catch(()=>{});
+
+    await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
+      x:+localPos.x.toFixed(3),
+      y:+localPos.y.toFixed(3),
+      level:2,
+      finishedLevel2:true
+    });
+  }catch(err){
+    console.error(err);
+    $("portalWait").classList.remove("show");
+    finishingLevel=false;
+    playerFinished=false;
+    level2Audio.play().catch(()=>{});
+  }
 }
 
 function openExitLock(){
@@ -3292,11 +3531,27 @@ async function enterPortal(){
 }
 
 canvas.addEventListener("pointerup",e=>{
-  if(!exitScreenRect || currentUser?.role==="spectator") return;
+  if(currentUser?.role==="spectator") return;
 
   const r=canvas.getBoundingClientRect();
   const x=e.clientX-r.left;
   const y=e.clientY-r.top;
+
+  if(currentLevel===2){
+    if(
+      level2ExitScreenRect &&
+      x>=level2ExitScreenRect.x &&
+      x<=level2ExitScreenRect.x+level2ExitScreenRect.w &&
+      y>=level2ExitScreenRect.y &&
+      y<=level2ExitScreenRect.y+level2ExitScreenRect.h &&
+      nearLevel2ExitDoor()
+    ){
+      enterLevel2Portal();
+    }
+    return;
+  }
+
+  if(!exitScreenRect) return;
 
   if(
     x>=exitScreenRect.x && x<=exitScreenRect.x+exitScreenRect.w &&
