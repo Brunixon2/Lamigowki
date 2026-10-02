@@ -387,6 +387,117 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
   text-shadow:0 3px 0 #bc7e1f,0 5px 16px #9d621f88;
 }
 
+
+.lobbyAvatar{
+  width:34px;
+  height:34px;
+  border-radius:50%;
+  object-fit:cover;
+  flex:none;
+  border:2px solid #4b4b52;
+  background:#27272a;
+}
+.lobbyAvatarFallback{
+  width:34px;
+  height:34px;
+  border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex:none;
+  border:2px solid #4b4b52;
+  background:#27272a;
+  color:#eee;
+  font:900 13px monospace;
+}
+
+#hostFunctions{
+  position:absolute;
+  z-index:42;
+  top:max(12px,env(safe-area-inset-top));
+  right:max(12px,env(safe-area-inset-right));
+  width:min(290px,42vw);
+  font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+#functionsButton{
+  width:auto;
+  min-width:110px;
+  height:42px;
+  float:right;
+  padding:0 16px;
+  border:2px solid #52525b;
+  border-radius:8px;
+  background:#18181bde;
+  color:#fff;
+  box-shadow:0 5px 18px #0009;
+  backdrop-filter:blur(5px);
+}
+#functionsPanel{
+  clear:both;
+  margin-top:50px;
+  padding:10px;
+  background:#0d0d10ed;
+  border:2px solid #424248;
+  border-radius:8px;
+  box-shadow:0 10px 28px #000b;
+}
+.functionRow{
+  padding:7px 8px;
+  background:#19191d;
+  border:1px solid #303036;
+  border-radius:6px;
+  color:#ddd;
+  font-size:13px;
+}
+.functionRow strong{
+  color:#fff2b6;
+  font-family:monospace;
+  letter-spacing:1px;
+}
+#effectsButton{
+  height:40px;
+  margin-top:8px;
+  background:#2c2c32;
+  color:#fff;
+  border-radius:6px;
+}
+#effectsPanel{
+  margin-top:8px;
+  padding-top:8px;
+  border-top:1px solid #34343a;
+}
+#effectPlayer{
+  width:100%;
+  height:40px;
+  border:1px solid #44444b;
+  border-radius:6px;
+  background:#1d1d22;
+  color:#fff;
+  padding:0 8px;
+}
+#speedEffect{
+  height:40px;
+  margin-top:7px;
+  border-radius:6px;
+  background:#e5e7eb;
+  color:#111;
+  font-size:14px;
+}
+#speedIndicator{
+  position:absolute;
+  z-index:28;
+  left:50%;
+  bottom:max(16px,env(safe-area-inset-bottom));
+  transform:translateX(-50%);
+  padding:7px 11px;
+  border:1px solid #927227;
+  border-radius:5px;
+  background:#17130bdc;
+  color:#ffe5a0;
+  font:900 12px monospace;
+  pointer-events:none;
+}
+
 </style>
 </head>
 <body>
@@ -468,8 +579,24 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
   <div id="levelBanner"><div class="big">Level 1</div><div class="small">Labirynt</div></div>
   <div id="wordHud">SŁOWO: <span id="wordProgress">????</span></div>
   <div id="letterToast"></div>
+
+  <div id="hostFunctions" class="hidden">
+    <button id="functionsButton">Funkcje</button>
+    <div id="functionsPanel" class="hidden">
+      <div class="functionRow">Hasło do drzwi: <strong id="hostDoorPassword">—</strong></div>
+      <button id="effectsButton">Efekty</button>
+      <div id="effectsPanel" class="hidden">
+        <select id="effectPlayer"></select>
+        <button id="speedEffect">Szybkość — 10 sekund</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="speedIndicator" class="hidden">SZYBKOŚĆ</div>
   <div id="joy"><div id="joyKnob"></div></div>
-  <div id="spectatorPanel" class="hidden"><select id="spectateSelect"><option value="">Swobodna kamera</option></select></div>
+  <div id="spectatorPanel" class="hidden">
+    <select id="spectateSelect"><option value="">Swobodna kamera</option></select>
+  </div>
   <div id="finishWait">Czekamy na pozostałych… <span id="finishCount"></span></div>
 </section>
 
@@ -506,7 +633,8 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
 import {
-  getAuth, signInWithEmailAndPassword, signOut
+  getAuth, signInWithEmailAndPassword, signOut,
+  setPersistence, browserSessionPersistence
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
 import {
   getDatabase, ref, set, get, update, onValue, onDisconnect
@@ -525,6 +653,10 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getDatabase(app);
+
+// Keep authentication separate for each tab/window.
+// This makes testing multiple accounts in one browser possible.
+const authPersistenceReady = setPersistence(auth, browserSessionPersistence);
 
 let currentUser = null;
 let currentGameCode = null;
@@ -633,6 +765,54 @@ const portalAudio = $("portalAudio");
 ambientAudio.volume = 0.14;
 doorOpenAudio.volume = 0.55;
 portalAudio.volume = 0.24;
+
+
+let lastSeenSpeedUntil = 0;
+
+function currentSpeedUntil(){
+  if(!auth.currentUser) return 0;
+  return Number(
+    remotePlayers?.[auth.currentUser.uid]?.effects?.speedUntil || 0
+  );
+}
+
+function speedEffectActive(){
+  return currentSpeedUntil() > Date.now();
+}
+
+function updateSpeedIndicator(){
+  const el=$("speedIndicator");
+  if(currentUser?.role==="spectator"){
+    el.classList.add("hidden");
+    return;
+  }
+
+  if(speedEffectActive()){
+    el.classList.remove("hidden");
+  }else{
+    el.classList.add("hidden");
+  }
+}
+
+function refreshEffectPlayers(){
+  const select=$("effectPlayer");
+  if(!select || currentUser?.role!=="host") return;
+
+  const old=select.value;
+  select.innerHTML="";
+
+  Object.entries(remotePlayers)
+    .filter(([,p])=>!p.spectator)
+    .sort((a,b)=>(a[1].name||"").localeCompare(b[1].name||"","pl"))
+    .forEach(([uid,p])=>{
+      const option=document.createElement("option");
+      option.value=uid;
+      option.textContent=p.name + (p.host ? " — Prowadzący" : "");
+      select.appendChild(option);
+    });
+
+  if([...select.options].some(o=>o.value===old)) select.value=old;
+}
 
 function tryStartAmbient(){
   if(gameScreen.style.display !== "block") return;
@@ -907,40 +1087,31 @@ function getAvatarImage(p){
 function drawAvatar(p,cx,cy){
   const sx = p.x*TILE-cx+innerWidth/2;
   const sy = p.y*TILE-cy+innerHeight/2;
-  const r = 18;
+  const r = 17;
 
-  const im=getAvatarImage(p);
-
-  ctx.save();
+  // Profile pictures are lobby-only. In the maze every player uses
+  // a simple marker so the photo never appears during gameplay.
   ctx.beginPath();
   ctx.arc(sx,sy,r,0,Math.PI*2);
-  ctx.clip();
-
-  if(im && im.complete && im.naturalWidth){
-    const side=Math.min(im.naturalWidth,im.naturalHeight);
-    const ox=(im.naturalWidth-side)/2;
-    const oy=(im.naturalHeight-side)/2;
-    ctx.drawImage(im,ox,oy,side,side,sx-r,sy-r,r*2,r*2);
-  }else{
-    ctx.fillStyle="#666";
-    ctx.fillRect(sx-r,sy-r,r*2,r*2);
-  }
-
-  ctx.restore();
-
-  ctx.beginPath();
-  ctx.arc(sx,sy,r+1,0,Math.PI*2);
-  ctx.strokeStyle="#f3f3f3";
+  ctx.fillStyle=p.host ? "#d6b25e" : "#b8b8bd";
+  ctx.fill();
   ctx.lineWidth=2;
+  ctx.strokeStyle="#f4f4f5";
   ctx.stroke();
 
-  ctx.font="700 12px system-ui";
+  const initial=(p.name || "?").trim().charAt(0).toUpperCase();
+  ctx.font="900 14px monospace";
   ctx.textAlign="center";
+  ctx.textBaseline="middle";
+  ctx.fillStyle="#18181b";
+  ctx.fillText(initial,sx,sy+1);
+
+  ctx.font="700 12px system-ui";
   ctx.textBaseline="bottom";
   ctx.lineWidth=4;
   ctx.strokeStyle="#000";
   ctx.fillStyle="#fff";
-  const label = p.name || "";
+  const label=p.name || "";
   ctx.strokeText(label,sx,sy-r-6);
   ctx.fillText(label,sx,sy-r-6);
 }
@@ -1283,6 +1454,7 @@ async function startLevel1(game){
 
   loginScreen.style.display="none";
   homeScreen.style.display="none";
+  $("profileCorner").classList.add("hidden");
   gameScreen.style.display="block";
   document.body.classList.add("game-running");
   document.body.style.overflow="hidden";
@@ -1308,6 +1480,13 @@ async function startLevel1(game){
   // Spectators also use the joystick for free camera.
   $("joy").classList.remove("hidden");
   $("spectatorPanel").classList.toggle("hidden",currentUser.role!=="spectator");
+
+  if(currentUser.role==="host"){
+    $("hostFunctions").classList.remove("hidden");
+    $("hostDoorPassword").textContent=levelWord;
+  }else{
+    $("hostFunctions").classList.add("hidden");
+  }
 
   if(currentUser.role!=="spectator"){
     // Send the avatar once. Position updates below no longer resend the image.
@@ -1349,6 +1528,15 @@ function listenLevelPlayers(code){
 
     const active=Object.values(remotePlayers).filter(p=>!p.spectator);
 
+    refreshEffectPlayers();
+
+    const mySpeedUntil=currentSpeedUntil();
+    if(mySpeedUntil>Date.now() && mySpeedUntil>lastSeenSpeedUntil){
+      lastSeenSpeedUntil=mySpeedUntil;
+      showGameToast("Efekt szybkości — 10 sekund");
+    }
+    updateSpeedIndicator();
+
     const wasRevealed=escapePathRevealed;
     escapePathRevealed=active.some(p=>p.wordSolved===true);
 
@@ -1366,6 +1554,33 @@ function listenLevelPlayers(code){
     }
   });
 }
+
+
+$("functionsButton").addEventListener("click",()=>{
+  $("functionsPanel").classList.toggle("hidden");
+});
+
+$("effectsButton").addEventListener("click",()=>{
+  $("effectsPanel").classList.toggle("hidden");
+});
+
+$("speedEffect").addEventListener("click",async()=>{
+  if(currentUser?.role!=="host" || !currentGameCode) return;
+
+  const uid=$("effectPlayer").value;
+  if(!uid) return;
+
+  const until=Date.now()+10000;
+
+  try{
+    await update(ref(db,`games/${currentGameCode}/players/${uid}/effects`),{
+      speedUntil:until
+    });
+  }catch(err){
+    console.error(err);
+    alert("Nie udało się nadać efektu.");
+  }
+});
 
 $("spectateSelect").addEventListener("change",e=>{
   followUid=e.target.value;
@@ -1388,7 +1603,8 @@ function snappedHalf(v){
 }
 
 function tryCreateGridTarget(mv){
-  if(moveTarget || Date.now()-lastGridStepAt < GRID_STEP_DELAY) return;
+  const stepDelay=speedEffectActive() ? 48 : GRID_STEP_DELAY;
+  if(moveTarget || Date.now()-lastGridStepAt < stepDelay) return;
 
   const ax=Math.abs(mv.x);
   const ay=Math.abs(mv.y);
@@ -1419,6 +1635,7 @@ function updateMovement(){
   if(gameScreen.style.display!=="block" || !maze) return;
 
   const mv=combinedMove();
+  updateSpeedIndicator();
 
   if(currentUser?.role==="spectator"){
     if(!followUid){
@@ -1437,14 +1654,15 @@ function updateMovement(){
     const dx=moveTarget.x-localPos.x;
     const dy=moveTarget.y-localPos.y;
     const dist=Math.hypot(dx,dy);
+    const gridMoveSpeed=speedEffectActive() ? 0.18 : GRID_MOVE_SPEED;
 
-    if(dist<=GRID_MOVE_SPEED){
+    if(dist<=gridMoveSpeed){
       localPos.x=moveTarget.x;
       localPos.y=moveTarget.y;
       moveTarget=null;
     }else{
-      localPos.x+=dx/dist*GRID_MOVE_SPEED;
-      localPos.y+=dy/dist*GRID_MOVE_SPEED;
+      localPos.x+=dx/dist*gridMoveSpeed;
+      localPos.y+=dy/dist*gridMoveSpeed;
     }
   }
 
@@ -1774,6 +1992,19 @@ function renderLobby(players = {}) {
 
   for (const p of entries) {
     const li = document.createElement("li");
+
+    let avatar;
+    if(p.avatar){
+      avatar=document.createElement("img");
+      avatar.className="lobbyAvatar";
+      avatar.src=p.avatar;
+      avatar.alt="";
+    }else{
+      avatar=document.createElement("span");
+      avatar.className="lobbyAvatarFallback";
+      avatar.textContent=(p.name || "?").trim().charAt(0).toUpperCase();
+    }
+
     const dot = document.createElement("span");
     dot.className = "dot";
     dot.style.background = "#22c55e";
@@ -1783,7 +2014,7 @@ function renderLobby(players = {}) {
       p.name +
       (p.host ? " — Prowadzący" : p.spectator ? " — Oglądający" : "");
 
-    li.append(dot, name);
+    li.append(avatar, dot, name);
     list.appendChild(li);
   }
 
@@ -1851,6 +2082,8 @@ $("loginForm").addEventListener("submit", async e => {
   }
 
   try {
+    await authPersistenceReady;
+
     const credential = await signInWithEmailAndPassword(
       auth,
       authEmail(login),
