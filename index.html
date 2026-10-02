@@ -55,6 +55,13 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
   background:#000;
   touch-action:none;
   user-select:none;
+  -webkit-user-select:none;
+  -webkit-touch-callout:none;
+}
+#gameScreen *{
+  user-select:none;
+  -webkit-user-select:none;
+  -webkit-touch-callout:none;
 }
 #mazeCanvas{
   position:absolute;
@@ -762,12 +769,12 @@ const L2_MOVE_SPEED = 3.6;
 const L2_JUMP_SPEED_MULTIPLIER = 1.18;
 const L2_JUMP_DURATION = 520;
 const L2_TORCH_RADIUS = LIGHT_RADIUS;
-const L2_TORCH_POWER = 0.4;
+const L2_TORCH_POWER = 0.1;
 const L2_TORCHES = [
-  {x:4.5,y:2.5,visible:true},
-  {x:29.5,y:2.5,visible:true},
-  {x:4.5,y:13.5,visible:false},
-  {x:29.5,y:13.5,visible:false}
+  {x:4.5,y:1.5,visible:true},
+  {x:29.5,y:1.5,visible:true},
+  {x:4.5,y:14.5,visible:false},
+  {x:29.5,y:14.5,visible:false}
 ];
 
 let maze = null;
@@ -1980,16 +1987,24 @@ function moveLevel2Continuous(mv,dt){
   if(len<.08) return;
 
   const speed=L2_MOVE_SPEED*(level2Jumping?L2_JUMP_SPEED_MULTIPLIER:1);
-  const dx=mv.x*speed*dt;
-  const dy=mv.y*speed*dt;
+  const scale=len>1 ? 1/len : 1;
+  const dx=mv.x*scale*speed*dt;
+  const dy=mv.y*scale*speed*dt;
   const canOccupy=level2Jumping ? canMoveLevel2InAir : canMoveLevel2;
 
   const nx=localPos.x+dx;
+  const ny=localPos.y+dy;
+
+  if(canOccupy(nx,ny)){
+    localPos.x=nx;
+    localPos.y=ny;
+    return;
+  }
+
   if(canOccupy(nx,localPos.y)){
     localPos.x=nx;
   }
 
-  const ny=localPos.y+dy;
   if(canOccupy(localPos.x,ny)){
     localPos.y=ny;
   }
@@ -2439,7 +2454,7 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
         ox+x*tile,
         oy+y*tile,
         tile,
-        tile*.27,
+        level2Phase==="exit" ? tile*.12 : tile*.27,
         "#8a5a2b",
         tint,
         offset,
@@ -3320,16 +3335,17 @@ function joyMove(e){
 }
 
 joy.addEventListener("pointerdown",e=>{
-
-  
   if(e.pointerType==="mouse" && e.button!==0) return;
+  e.preventDefault();
 
   joyPointer=e.pointerId;
   try{ joy.setPointerCapture(e.pointerId); }catch(_){}
   joyMove(e);
 });
 joy.addEventListener("pointermove",e=>{
-  if(e.pointerId===joyPointer) joyMove(e);
+  if(e.pointerId!==joyPointer) return;
+  e.preventDefault();
+  joyMove(e);
 });
 function joyEnd(e){
   if(joyPointer!==null && e?.pointerId!==undefined && e.pointerId!==joyPointer) return;
