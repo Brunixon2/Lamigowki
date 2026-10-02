@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#09090b">
+<meta name="color-scheme" content="dark">
+<title>Łamigłówki itp.</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;min-height:100%;background:#09090b;color:#f4f4f5;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+body{min-height:100dvh}
+.screen{min-height:100dvh;width:100%;padding:max(22px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left));}
+#loginScreen{display:flex;align-items:center;justify-content:center}
+.wrap{width:100%;max-width:460px;margin:auto}
+.logo{display:block;width:122px;height:122px;object-fit:contain;margin:0 auto 18px;image-rendering:pixelated;transition:transform .45s cubic-bezier(.2,.8,.2,1),opacity .35s}
+.logo.pop{transform:scale(1.22);opacity:.92}
+h1{font-size:36px;line-height:1.05;text-align:center;margin:0 0 10px}
+.sub{text-align:center;color:#a1a1aa;margin:0 0 30px}
+label{display:block;font-size:14px;font-weight:750;margin:18px 0 8px}
+input{width:100%;height:56px;border:1px solid #34343a;border-radius:12px;background:#17171b;color:white;padding:0 15px;font-size:18px;outline:none}
+input:focus{border-color:#71717a}
+button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-weight:800;cursor:pointer}
+.primary{background:#f4f4f5;color:#111113;margin-top:24px}
+.error{min-height:22px;text-align:center;color:#fb7185;margin-top:14px;font-size:14px}
+#homeScreen{display:none;overflow:auto}
+.home{width:100%;max-width:520px;margin:0 auto;padding-bottom:24px}
+.homeTop{text-align:center;padding-top:8px}
+.homeTop .logo{width:100px;height:100px;margin-bottom:8px}
+.homeTop h2{font-size:28px;margin:0 0 5px}
+.welcome{color:#a1a1aa;margin:0 0 22px}
+.card{background:#151518;border:1px solid #29292e;border-radius:16px;padding:16px;margin:12px 0}
+.card h3{margin:0 0 12px;font-size:17px}
+.hostButton{background:#3f3f46;color:#fff;margin-bottom:12px}
+.gameRow{display:flex;gap:9px}
+.gameRow input{flex:1;min-width:0}
+.gameRow button{width:116px;background:#f4f4f5;color:#111113}
+.gameCode{font-family:monospace;font-size:25px;letter-spacing:3px;font-weight:800;margin:5px 0 13px}
+.hidden{display:none!important}
+.playerList{list-style:none;padding:0;margin:0}
+.playerList li{padding:11px 3px;border-bottom:1px solid #29292e;display:flex;align-items:center;gap:9px}
+.playerList li:last-child{border-bottom:0}
+.dot{width:8px;height:8px;border-radius:2px;background:#71717a;flex:none}
+.note{color:#8b8b93;font-size:12px;line-height:1.4;margin-top:10px}
+</style>
+</head>
+<body>
+<section id="loginScreen" class="screen">
+  <div class="wrap">
+    <img id="loginLogo" class="logo" src="assets/icon.png" alt="Łamigłówki itp.">
+    <h1>Łamigłówki itp.</h1>
+    <p class="sub">Zaloguj się swoim loginem i pinem podanym na kartce</p>
+    <form id="loginForm">
+      <label for="login">Login</label>
+      <input id="login" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+      <label for="pin">PIN</label>
+      <input id="pin" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" required>
+      <button class="primary" type="submit">Zaloguj się</button>
+      <div id="error" class="error"></div>
+    </form>
+  </div>
+</section>
+
+<section id="homeScreen" class="screen">
+  <div class="home">
+    <div class="homeTop">
+      <img class="logo" src="assets/icon.png" alt="">
+      <h2>Łamigłówki itp.</h2>
+      <p id="welcome" class="welcome"></p>
+    </div>
+
+    <div id="hostCard" class="card hidden">
+      <h3>Prowadzący</h3>
+      <button id="createGame" class="hostButton">Utwórz grę</button>
+      <div id="createdGame" class="hidden">
+        <div style="color:#a1a1aa;font-size:13px">Kod Gry:</div>
+        <div id="createdCode" class="gameCode">----</div>
+        <button id="startGame" class="primary" style="margin-top:0">Rozpocznij</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Dołącz do gry</h3>
+      <div class="gameRow">
+        <input id="gameCodeInput" inputmode="numeric" maxlength="4" placeholder="Kod Gry">
+        <button id="joinGame">Dołącz!</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Lista graczy</h3>
+      <ul id="playerList" class="playerList"></ul>
+      <div class="note">Lista pokazuje wszystkich 30 graczy. Synchronizację osób faktycznie dołączonych do jednego pokoju dodamy po podłączeniu backendu.</div>
+    </div>
+  </div>
+</section>
+
+<script>
+const USERS = {
+      "AdmP": { pin: "4208", name: "Adam Pypla", host: false },
+      "AlkK": { pin: "0271", name: "Aleksandra Kaczmarek", host: false },
+      "AlcJ": { pin: "9234", name: "Alicja Jarus", host: false },
+      "AmlM": { pin: "4400", name: "Amelka Michalak", host: false },
+      "ArkL": { pin: "2635", name: "Arek Łeckio", host: false },
+      "BarB": { pin: "1369", name: "Barbara Baryga", host: false },
+      "BlnS": { pin: "1278", name: "Blanka Sobota", host: false },
+      "BrnG": { pin: "1199", name: "Bruno Grędziak", host: true },
+      "BrnK": { pin: "7780", name: "Bruno Klause", host: false },
+      "EmlS": { pin: "7478", name: "Emilia Skotarek", host: false },
+      "GabJ": { pin: "9759", name: "Gabryś Jędrzejewski", host: false },
+      "IgrR": { pin: "4673", name: "Igor Rybakowski", host: false },
+      "IgrS": { pin: "7554", name: "Igor Szwarc", host: false },
+      "JkbD": { pin: "2413", name: "Jakub Dworniczak", host: false },
+      "KasK": { pin: "0134", name: "Kasia Kmiecik", host: false },
+      "KldJ": { pin: "3797", name: "Klaudia Juskowiak", host: false },
+      "KlyL": { pin: "4960", name: "Klymenko Liliia", host: false },
+      "LenK": { pin: "5952", name: "Lena Klimek", host: false },
+      "MajP": { pin: "1135", name: "Maja Przybył", host: false },
+      "MarJ": { pin: "0603", name: "Maria Jarczyńska", host: false },
+      "MarW": { pin: "9274", name: "Maria Wujek", host: false },
+      "MriB": { pin: "9517", name: "Marianna Bręk", host: false },
+      "MrtN": { pin: "3398", name: "Martyna Nogała", host: false },
+      "MrtR": { pin: "5778", name: "Martyna Rudyńska", host: false },
+      "MlgK": { pin: "8263", name: "Małgosia Krawczyk", host: false },
+      "NikP": { pin: "6409", name: "Nikola Pierszchała", host: false },
+      "PtrB": { pin: "7795", name: "Patryk Bagiński", host: false },
+      "PtrP": { pin: "0854", name: "Patryk Pernak", host: false },
+      "SndK": { pin: "0599", name: "Sandra Kowalska", host: false },
+      "WikS": { pin: "6600", name: "Wiktoria Straburzyńska", host: false },
+      "Oglądający": { pin: "9013", name: "Oglądający", host: false }
+};
+
+const ALL_PLAYERS = ['Adam Pypla', 'Aleksandra Kaczmarek', 'Alicja Jarus', 'Amelka Michalak', 'Arek Łeckio', 'Barbara Baryga', 'Blanka Sobota', 'Bruno Grędziak', 'Bruno Klause', 'Emilia Skotarek', 'Gabryś Jędrzejewski', 'Igor Rybakowski', 'Igor Szwarc', 'Jakub Dworniczak', 'Kasia Kmiecik', 'Klaudia Juskowiak', 'Klymenko Liliia', 'Lena Klimek', 'Maja Przybył', 'Maria Jarczyńska', 'Maria Wujek', 'Marianna Bręk', 'Martyna Nogała', 'Martyna Rudyńska', 'Małgosia Krawczyk', 'Nikola Pierszchała', 'Patryk Bagiński', 'Patryk Pernak', 'Sandra Kowalska', 'Wiktoria Straburzyńska'];
+let currentUser = null;
+let currentGameCode = null;
+
+const loginScreen = document.getElementById("loginScreen");
+const homeScreen = document.getElementById("homeScreen");
+const loginLogo = document.getElementById("loginLogo");
+const error = document.getElementById("error");
+
+function renderPlayers() {
+  const list = document.getElementById("playerList");
+  list.innerHTML = "";
+  ALL_PLAYERS.forEach(name => {
+    const li = document.createElement("li");
+    li.innerHTML = '<span class="dot"></span><span></span>';
+    li.lastElementChild.textContent = name;
+    list.appendChild(li);
+  });
+}
+
+document.getElementById("loginForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const login = document.getElementById("login").value.trim();
+  const pin = document.getElementById("pin").value.trim();
+  const user = USERS[login];
+
+  if (!user || user.pin !== pin) {
+    error.textContent = "Nieprawidłowy login lub PIN.";
+    return;
+  }
+
+  currentUser = { login, ...user };
+  error.textContent = "";
+  loginLogo.classList.add("pop");
+
+  setTimeout(() => {
+    loginScreen.style.display = "none";
+    homeScreen.style.display = "block";
+    document.body.style.overflow = "auto";
+    document.getElementById("welcome").textContent = "Zalogowano jako: " + user.name;
+    if (user.host) document.getElementById("hostCard").classList.remove("hidden");
+    renderPlayers();
+    window.scrollTo(0,0);
+  }, 430);
+});
+
+document.getElementById("createGame").addEventListener("click", () => {
+  if (!currentUser?.host) return;
+  currentGameCode = String(Math.floor(1000 + Math.random() * 9000));
+  document.getElementById("createdCode").textContent = currentGameCode;
+  document.getElementById("createdGame").classList.remove("hidden");
+  document.getElementById("createGame").textContent = "Utwórz nową grę";
+});
+
+document.getElementById("joinGame").addEventListener("click", () => {
+  const code = document.getElementById("gameCodeInput").value.trim();
+  if (code.length !== 4) {
+    alert("Wpisz 4-cyfrowy Kod Gry.");
+    return;
+  }
+  alert("Dołączanie do pokoju " + code + " podłączymy do systemu multiplayer.");
+});
+
+document.getElementById("startGame").addEventListener("click", () => {
+  alert("Ekran właściwej gry dodamy w kolejnym kroku.");
+});
+</script>
+</body>
+</html>
