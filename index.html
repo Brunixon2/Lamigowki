@@ -248,6 +248,18 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
   border:1px solid #555;
   border-radius:4px;
 }
+#spectatorPanel button{
+  width:100%;
+  height:40px;
+  margin:0;
+  border-radius:5px;
+  background:#27272c;
+  color:#fff;
+  border:1px solid #4b4b52;
+  font-size:13px;
+}
+#spectateOptions{margin-top:7px}
+#spectateOverview{margin-top:7px!important}
 #finishWait{
   position:absolute;
   z-index:26;
@@ -550,7 +562,11 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
   </div>
 <div id="joy"><div id="joyKnob"></div></div>
   <div id="spectatorPanel" class="hidden">
-    <select id="spectateSelect"><option value="">Swobodna kamera</option></select>
+    <button id="spectateToggle">Oglądaj gracza</button>
+    <div id="spectateOptions" class="hidden">
+      <select id="spectateSelect"><option value="">Wybierz gracza</option></select>
+      <button id="spectateOverview">Cała mapa</button>
+    </div>
   </div>
   <div id="finishWait">Czekamy na pozostałych… <span id="finishCount"></span></div>
 </section>
@@ -683,8 +699,23 @@ function avatarStorageKey(){
   return "lamiglowki_avatar_"+auth.currentUser.uid;
 }
 
+function loadSavedAvatar(){
+  if(!auth.currentUser || currentUser?.role==="spectator"){
+    avatarData=null;
+    return null;
+  }
+
+  try{
+    avatarData=localStorage.getItem(avatarStorageKey()) || null;
+  }catch(err){
+    console.error("Nie udało się odczytać PFP:",err);
+    avatarData=null;
+  }
+  return avatarData;
+}
+
 function updateProfileCorner(){
-  if(!currentUser || currentUser.role==="spectator"){
+  if(!currentUser || currentUser.role==="spectator" || gameScreen.style.display==="block"){
     $("profileCorner").classList.add("hidden");
     return;
   }
@@ -693,14 +724,26 @@ function updateProfileCorner(){
   const img=$("profileImage");
   const fallback=$("profileFallback");
 
+  fallback.textContent=(currentUser.name || "?").trim().charAt(0).toUpperCase();
+
   if(avatarData){
+    img.onload=()=>{
+      img.classList.remove("hidden");
+      fallback.classList.add("hidden");
+    };
+    img.onerror=()=>{
+      img.classList.add("hidden");
+      fallback.classList.remove("hidden");
+    };
     img.src=avatarData;
-    img.classList.remove("hidden");
-    fallback.classList.add("hidden");
+
+    if(img.complete && img.naturalWidth){
+      img.classList.remove("hidden");
+      fallback.classList.add("hidden");
+    }
   }else{
     img.removeAttribute("src");
     img.classList.add("hidden");
-    fallback.textContent=(currentUser.name || "?").trim().charAt(0).toUpperCase();
     fallback.classList.remove("hidden");
   }
 }
@@ -1211,6 +1254,114 @@ function drawLetterNotes(cx,cy,light,spectatorFree){
 }
 
 
+
+function drawSpectatorPlayer(p,sx,sy,r,nameSize=11){
+  const im=getAvatarImage(p);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(sx,sy,r,0,Math.PI*2);
+  ctx.clip();
+
+  if(im && im.complete && im.naturalWidth){
+    const side=Math.min(im.naturalWidth,im.naturalHeight);
+    const ox=(im.naturalWidth-side)/2;
+    const oy=(im.naturalHeight-side)/2;
+    ctx.drawImage(im,ox,oy,side,side,sx-r,sy-r,r*2,r*2);
+  }else{
+    ctx.fillStyle=p.host ? "#d6b25e" : "#b8b8bd";
+    ctx.fillRect(sx-r,sy-r,r*2,r*2);
+
+    ctx.font=`900 ${Math.max(8,r)}px monospace`;
+    ctx.textAlign="center";
+    ctx.textBaseline="middle";
+    ctx.fillStyle="#18181b";
+    ctx.fillText((p.name||"?").trim().charAt(0).toUpperCase(),sx,sy+1);
+  }
+
+  ctx.restore();
+
+  ctx.beginPath();
+  ctx.arc(sx,sy,r+1,0,Math.PI*2);
+  ctx.strokeStyle="#f4f4f5";
+  ctx.lineWidth=Math.max(1,Math.min(2,r*.16));
+  ctx.stroke();
+
+  const label=p.name || "";
+  ctx.font=`800 ${nameSize}px system-ui`;
+  ctx.textAlign="center";
+  ctx.textBaseline="bottom";
+  ctx.lineWidth=3;
+  ctx.strokeStyle="#000";
+  ctx.fillStyle="#fff";
+  ctx.strokeText(label,sx,sy-r-4);
+  ctx.fillText(label,sx,sy-r-4);
+}
+
+function renderSpectatorFollow(uid){
+  const target=remotePlayers[uid];
+  if(!target || target.spectator || target.x==null || target.y==null){
+    followUid="";
+    renderSpectatorOverview();
+    return;
+  }
+
+  const d=Math.max(1,Math.min(2,devicePixelRatio||1));
+  ctx.setTransform(d,0,0,d,0,0);
+  ctx.imageSmoothingEnabled=false;
+  ctx.fillStyle="#000";
+  ctx.fillRect(0,0,innerWidth,innerHeight);
+
+  const cx=(+target.x)*TILE;
+  const cy=(+target.y)*TILE;
+  const minX=Math.max(0,Math.floor((cx-innerWidth/2)/TILE)-1);
+  const maxX=Math.min(COLS-1,Math.ceil((cx+innerWidth/2)/TILE)+1);
+  const minY=Math.max(0,Math.floor((cy-innerHeight/2)/TILE)-1);
+  const maxY=Math.min(ROWS-1,Math.ceil((cy+innerHeight/2)/TILE)+1);
+  const light=buildLightMap();
+
+  for(let y=minY;y<=maxY;y++){
+    for(let x=minX;x<=maxX;x++){
+      const p=tileScreen(x,y,cx,cy);
+      const intensity=light[y][x]||0;
+
+      if(intensity<=0){
+        ctx.fillStyle="#000";
+        ctx.fillRect(p.x,p.y,TILE+1,TILE+1);
+        continue;
+      }
+
+      if(maze[y][x]){
+        const moss=((x*37+y*17)%23===0);
+        drawTexture(moss?tex.moss:tex.wall,p.x,p.y,TILE+1,TILE+1,moss?"#43513b":"#555");
+      }else{
+        drawTexture(tex.dirt,p.x,p.y,TILE+1,TILE+1,"#503b27");
+      }
+
+      const darkness=Math.max(0,.78-intensity*.78);
+      if(darkness>0){
+        ctx.fillStyle=`rgba(0,0,0,${darkness})`;
+        ctx.fillRect(p.x,p.y,TILE+1,TILE+1);
+      }
+
+      ctx.fillStyle=`rgba(255,183,72,${.05+intensity*.18})`;
+      ctx.fillRect(p.x,p.y,TILE+1,TILE+1);
+    }
+  }
+
+  // Spectator follow mode still hides letters, door and escape path.
+  for(const p of Object.values(remotePlayers)){
+    if(p.spectator || p.x==null || p.y==null) continue;
+    const tx=Math.floor(+p.x);
+    const ty=Math.floor(+p.y);
+    if((light?.[ty]?.[tx]||0)<=0) continue;
+
+    const sx=(+p.x)*TILE-cx+innerWidth/2;
+    const sy=(+p.y)*TILE-cy+innerHeight/2;
+    drawSpectatorPlayer(p,sx,sy,18,12);
+  }
+}
+
 function renderSpectatorOverview(){
   const d = Math.max(1, Math.min(2, devicePixelRatio || 1));
   ctx.setTransform(d,0,0,d,0,0);
@@ -1218,7 +1369,7 @@ function renderSpectatorOverview(){
   ctx.fillStyle="#000";
   ctx.fillRect(0,0,innerWidth,innerHeight);
 
-  const margin=14;
+  const margin=22;
   const tile=Math.min(
     (innerWidth-margin*2)/COLS,
     (innerHeight-margin*2)/ROWS
@@ -1228,9 +1379,6 @@ function renderSpectatorOverview(){
   const mapH=ROWS*tile;
   const ox=(innerWidth-mapW)/2;
   const oy=(innerHeight-mapH)/2;
-
-  // Spectator has the SAME torch lighting as players.
-  // The camera simply fits the entire map on screen.
   const light=buildLightMap();
 
   for(let y=0;y<ROWS;y++){
@@ -1262,15 +1410,23 @@ function renderSpectatorOverview(){
         ctx.fillRect(px,py,tile+.5,tile+.5);
       }
 
-      const warm=.05+intensity*.18;
-      ctx.fillStyle=`rgba(255,183,72,${warm})`;
+      ctx.fillStyle=`rgba(255,183,72,${.05+intensity*.18})`;
       ctx.fillRect(px,py,tile+.5,tile+.5);
     }
   }
 
-  // IMPORTANT:
-  // Spectator does NOT see paper notes, door position, or the escape route.
-  // Only players themselves are drawn on the overview.
+  // Visible border showing exactly where the maze ends.
+  ctx.save();
+  ctx.strokeStyle="#d4d4d8";
+  ctx.lineWidth=3;
+  ctx.strokeRect(ox-2,oy-2,mapW+4,mapH+4);
+  ctx.strokeStyle="#3f3f46";
+  ctx.lineWidth=1;
+  ctx.strokeRect(ox+2,oy+2,mapW-4,mapH-4);
+  ctx.restore();
+
+  // No paper notes, no door and no escape route for the spectator.
+  // Players are shown with their saved profile photo and name.
   for(const p of Object.values(remotePlayers)){
     if(p.spectator || p.x==null || p.y==null) continue;
 
@@ -1280,15 +1436,10 @@ function renderSpectatorOverview(){
 
     const sx=ox+(+p.x)*tile;
     const sy=oy+(+p.y)*tile;
-    const r=Math.max(3.5,Math.min(8,tile*.34));
+    const r=Math.max(5,Math.min(10,tile*.42));
+    const fontSize=Math.max(8,Math.min(11,tile*.52));
 
-    ctx.beginPath();
-    ctx.arc(sx,sy,r,0,Math.PI*2);
-    ctx.fillStyle=p.host ? "#d6b25e" : "#f1f1f2";
-    ctx.fill();
-    ctx.lineWidth=Math.max(1,tile*.06);
-    ctx.strokeStyle="#111";
-    ctx.stroke();
+    drawSpectatorPlayer(p,sx,sy,r,fontSize);
   }
 }
 
@@ -1303,14 +1454,15 @@ function renderGame(){
   ctx.fillRect(0,0,innerWidth,innerHeight);
 
   if(currentUser?.role==="spectator"){
-    renderSpectatorOverview();
+    if(followUid){
+      renderSpectatorFollow(followUid);
+    }else{
+      renderSpectatorOverview();
+    }
     return;
   }
 
   let cameraPos = localPos;
-  if(currentUser?.role==="spectator" && followUid && remotePlayers[followUid]?.x!=null){
-    cameraPos={x:+remotePlayers[followUid].x,y:+remotePlayers[followUid].y};
-  }
 
   const cx=cameraPos.x*TILE;
   const cy=cameraPos.y*TILE;
@@ -1474,7 +1626,9 @@ async function startLevel1(game){
 
   if(currentUser.role==="spectator"){
     $("joy").classList.add("hidden");
-    $("spectatorPanel").classList.add("hidden");
+    $("spectatorPanel").classList.remove("hidden");
+    $("spectateOptions").classList.add("hidden");
+    followUid="";
   }else{
     $("joy").classList.remove("hidden");
     $("spectatorPanel").classList.add("hidden");
@@ -1507,6 +1661,27 @@ function listenLevelPlayers(code){
   levelPlayersListener=onValue(ref(db,`games/${code}/players`),snap=>{
     remotePlayers=snap.val()||{};
 
+    if(currentUser?.role==="spectator"){
+      const select=$("spectateSelect");
+      const old=select.value;
+      select.innerHTML='<option value="">Wybierz gracza</option>';
+
+      Object.entries(remotePlayers)
+        .filter(([,p])=>!p.spectator)
+        .sort((a,b)=>(a[1].name||"").localeCompare(b[1].name||"","pl"))
+        .forEach(([uid,p])=>{
+          const option=document.createElement("option");
+          option.value=uid;
+          option.textContent=p.name || "Gracz";
+          select.appendChild(option);
+        });
+
+      if([...select.options].some(o=>o.value===old)){
+        select.value=old;
+      }else if(followUid && !remotePlayers[followUid]){
+        followUid="";
+      }
+    }
 
     const active=Object.values(remotePlayers).filter(p=>!p.spectator);
 
@@ -1528,6 +1703,20 @@ function listenLevelPlayers(code){
   });
 }
 
+
+
+$("spectateToggle").addEventListener("click",()=>{
+  $("spectateOptions").classList.toggle("hidden");
+});
+
+$("spectateSelect").addEventListener("change",e=>{
+  followUid=e.target.value || "";
+});
+
+$("spectateOverview").addEventListener("click",()=>{
+  followUid="";
+  $("spectateSelect").value="";
+});
 
 $("functionsButton").addEventListener("click",()=>{
   $("functionsPanel").classList.toggle("hidden");
@@ -1790,19 +1979,20 @@ $("exitWord").addEventListener("keydown",e=>{
 
 async function ensureAvatar(){
   if(currentUser.role==="spectator"){
+    avatarData=null;
     $("profileCorner").classList.add("hidden");
     return;
   }
 
-  const saved=localStorage.getItem(avatarStorageKey());
-  avatarData=saved || null;
+  loadSavedAvatar();
+
+  const preview=$("avatarPreview");
+  preview.classList.remove("hidden");
 
   if(avatarData){
-    $("avatarPreview").src=avatarData;
-    $("avatarPreview").classList.remove("hidden");
+    preview.src=avatarData;
   }else{
-    $("avatarPreview").removeAttribute("src");
-    $("avatarPreview").classList.remove("hidden");
+    preview.removeAttribute("src");
   }
 
   updateProfileCorner();
@@ -1877,9 +2067,27 @@ $("saveAvatar").onclick=async()=>{
     return;
   }
 
-  localStorage.setItem(avatarStorageKey(),avatarData);
+  try{
+    localStorage.setItem(avatarStorageKey(),avatarData);
+  }catch(err){
+    console.error(err);
+    alert("Nie udało się zapisać zdjęcia profilowego.");
+    return;
+  }
+
   updateProfileCorner();
-  syncAvatarToCurrentGame();
+
+  // If the player is already inside a lobby, update the visible lobby avatar immediately.
+  if(currentGameCode){
+    try{
+      await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
+        avatar:avatarData
+      });
+    }catch(err){
+      console.error("Nie udało się zsynchronizować PFP z lobby:",err);
+    }
+  }
+
   $("avatarModal").classList.add("hidden");
 };
 
@@ -1897,6 +2105,7 @@ document.addEventListener("click",e=>{
 
 $("profileChange").addEventListener("click",()=>{
   $("profileMenu").classList.add("hidden");
+  $("avatarFile").value="";
 
   if(avatarData){
     $("avatarPreview").src=avatarData;
@@ -1908,12 +2117,22 @@ $("profileChange").addEventListener("click",()=>{
   $("avatarModal").classList.remove("hidden");
 });
 
-$("profileRemove").addEventListener("click",()=>{
-  localStorage.removeItem(avatarStorageKey());
+$("profileRemove").addEventListener("click",async()=>{
+  try{ localStorage.removeItem(avatarStorageKey()); }catch(_){}
   avatarData=null;
   $("avatarPreview").removeAttribute("src");
   updateProfileCorner();
-  syncAvatarToCurrentGame();
+
+  if(currentGameCode && auth.currentUser){
+    try{
+      await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
+        avatar:null
+      });
+    }catch(err){
+      console.error("Nie udało się usunąć PFP z lobby:",err);
+    }
+  }
+
   $("profileMenu").classList.add("hidden");
 });
 
@@ -1994,6 +2213,14 @@ async function addCurrentUserToGame(code) {
     joinedAt: Date.now()
   });
 
+  // Re-read the saved PFP in case it was changed before joining.
+  if(currentUser.role!=="spectator"){
+    loadSavedAvatar();
+    if(avatarData){
+      try{ await update(playerRef,{avatar:avatarData}); }catch(_){}
+    }
+  }
+
   try { await onDisconnect(playerRef).remove(); } catch (_) {}
 }
 
@@ -2047,6 +2274,7 @@ $("loginForm").addEventListener("submit", async e => {
       homeScreen.style.display = "block";
       document.body.style.overflow = "auto";
       $("welcome").textContent = "Zalogowano jako: " + currentUser.name;
+      loadSavedAvatar();
       updateProfileCorner();
 
       if (currentUser.role === "host") {
