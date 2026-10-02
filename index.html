@@ -454,49 +454,11 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
   font-family:monospace;
   letter-spacing:1px;
 }
-#effectsButton{
-  height:40px;
-  margin-top:8px;
-  background:#2c2c32;
-  color:#fff;
-  border-radius:6px;
-}
-#effectsPanel{
-  margin-top:8px;
-  padding-top:8px;
-  border-top:1px solid #34343a;
-}
-#effectPlayer{
-  width:100%;
-  height:40px;
-  border:1px solid #44444b;
-  border-radius:6px;
-  background:#1d1d22;
-  color:#fff;
-  padding:0 8px;
-}
-#speedEffect{
-  height:40px;
-  margin-top:7px;
-  border-radius:6px;
-  background:#e5e7eb;
-  color:#111;
-  font-size:14px;
-}
-#speedIndicator{
-  position:absolute;
-  z-index:28;
-  left:50%;
-  bottom:max(16px,env(safe-area-inset-bottom));
-  transform:translateX(-50%);
-  padding:7px 11px;
-  border:1px solid #927227;
-  border-radius:5px;
-  background:#17130bdc;
-  color:#ffe5a0;
-  font:900 12px monospace;
-  pointer-events:none;
-}
+
+
+
+
+
 
 </style>
 </head>
@@ -584,16 +546,9 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
     <button id="functionsButton">Funkcje</button>
     <div id="functionsPanel" class="hidden">
       <div class="functionRow">Hasło do drzwi: <strong id="hostDoorPassword">—</strong></div>
-      <button id="effectsButton">Efekty</button>
-      <div id="effectsPanel" class="hidden">
-        <select id="effectPlayer"></select>
-        <button id="speedEffect">Szybkość — 10 sekund</button>
-      </div>
-    </div>
+</div>
   </div>
-
-  <div id="speedIndicator" class="hidden">SZYBKOŚĆ</div>
-  <div id="joy"><div id="joyKnob"></div></div>
+<div id="joy"><div id="joyKnob"></div></div>
   <div id="spectatorPanel" class="hidden">
     <select id="spectateSelect"><option value="">Swobodna kamera</option></select>
   </div>
@@ -766,53 +721,6 @@ ambientAudio.volume = 0.14;
 doorOpenAudio.volume = 0.55;
 portalAudio.volume = 0.24;
 
-
-let lastSeenSpeedUntil = 0;
-
-function currentSpeedUntil(){
-  if(!auth.currentUser) return 0;
-  return Number(
-    remotePlayers?.[auth.currentUser.uid]?.effects?.speedUntil || 0
-  );
-}
-
-function speedEffectActive(){
-  return currentSpeedUntil() > Date.now();
-}
-
-function updateSpeedIndicator(){
-  const el=$("speedIndicator");
-  if(currentUser?.role==="spectator"){
-    el.classList.add("hidden");
-    return;
-  }
-
-  if(speedEffectActive()){
-    el.classList.remove("hidden");
-  }else{
-    el.classList.add("hidden");
-  }
-}
-
-function refreshEffectPlayers(){
-  const select=$("effectPlayer");
-  if(!select || currentUser?.role!=="host") return;
-
-  const old=select.value;
-  select.innerHTML="";
-
-  Object.entries(remotePlayers)
-    .filter(([,p])=>!p.spectator)
-    .sort((a,b)=>(a[1].name||"").localeCompare(b[1].name||"","pl"))
-    .forEach(([uid,p])=>{
-      const option=document.createElement("option");
-      option.value=uid;
-      option.textContent=p.name + (p.host ? " — Prowadzący" : "");
-      select.appendChild(option);
-    });
-
-  if([...select.options].some(o=>o.value===old)) select.value=old;
-}
 
 function tryStartAmbient(){
   if(gameScreen.style.display !== "block") return;
@@ -1302,6 +1210,88 @@ function drawLetterNotes(cx,cy,light,spectatorFree){
   }
 }
 
+
+function renderSpectatorOverview(){
+  const d = Math.max(1, Math.min(2, devicePixelRatio || 1));
+  ctx.setTransform(d,0,0,d,0,0);
+  ctx.imageSmoothingEnabled=false;
+  ctx.fillStyle="#000";
+  ctx.fillRect(0,0,innerWidth,innerHeight);
+
+  const margin=14;
+  const tile=Math.min(
+    (innerWidth-margin*2)/COLS,
+    (innerHeight-margin*2)/ROWS
+  );
+
+  const mapW=COLS*tile;
+  const mapH=ROWS*tile;
+  const ox=(innerWidth-mapW)/2;
+  const oy=(innerHeight-mapH)/2;
+
+  // Spectator has the SAME torch lighting as players.
+  // The camera simply fits the entire map on screen.
+  const light=buildLightMap();
+
+  for(let y=0;y<ROWS;y++){
+    for(let x=0;x<COLS;x++){
+      const px=ox+x*tile;
+      const py=oy+y*tile;
+      const intensity=light[y][x] || 0;
+
+      if(intensity<=0){
+        ctx.fillStyle="#000";
+        ctx.fillRect(px,py,tile+.5,tile+.5);
+        continue;
+      }
+
+      if(maze[y][x]){
+        const moss=((x*37+y*17)%23===0);
+        drawTexture(
+          moss?tex.moss:tex.wall,
+          px,py,tile+.5,tile+.5,
+          moss?"#43513b":"#555"
+        );
+      }else{
+        drawTexture(tex.dirt,px,py,tile+.5,tile+.5,"#503b27");
+      }
+
+      const darkness=Math.max(0,.78-intensity*.78);
+      if(darkness>0){
+        ctx.fillStyle=`rgba(0,0,0,${darkness})`;
+        ctx.fillRect(px,py,tile+.5,tile+.5);
+      }
+
+      const warm=.05+intensity*.18;
+      ctx.fillStyle=`rgba(255,183,72,${warm})`;
+      ctx.fillRect(px,py,tile+.5,tile+.5);
+    }
+  }
+
+  // IMPORTANT:
+  // Spectator does NOT see paper notes, door position, or the escape route.
+  // Only players themselves are drawn on the overview.
+  for(const p of Object.values(remotePlayers)){
+    if(p.spectator || p.x==null || p.y==null) continue;
+
+    const tx=Math.floor(+p.x);
+    const ty=Math.floor(+p.y);
+    if((light?.[ty]?.[tx] || 0)<=0) continue;
+
+    const sx=ox+(+p.x)*tile;
+    const sy=oy+(+p.y)*tile;
+    const r=Math.max(3.5,Math.min(8,tile*.34));
+
+    ctx.beginPath();
+    ctx.arc(sx,sy,r,0,Math.PI*2);
+    ctx.fillStyle=p.host ? "#d6b25e" : "#f1f1f2";
+    ctx.fill();
+    ctx.lineWidth=Math.max(1,tile*.06);
+    ctx.strokeStyle="#111";
+    ctx.stroke();
+  }
+}
+
 function renderGame(){
   requestAnimationFrame(renderGame);
   if(gameScreen.style.display!=="block" || !maze) return;
@@ -1312,7 +1302,12 @@ function renderGame(){
   ctx.fillStyle="#000";
   ctx.fillRect(0,0,innerWidth,innerHeight);
 
-  let cameraPos = currentUser?.role==="spectator" ? spectatorPos : localPos;
+  if(currentUser?.role==="spectator"){
+    renderSpectatorOverview();
+    return;
+  }
+
+  let cameraPos = localPos;
   if(currentUser?.role==="spectator" && followUid && remotePlayers[followUid]?.x!=null){
     cameraPos={x:+remotePlayers[followUid].x,y:+remotePlayers[followUid].y};
   }
@@ -1324,8 +1319,8 @@ function renderGame(){
   const minY=Math.max(0,Math.floor((cy-innerHeight/2)/TILE)-1);
   const maxY=Math.min(ROWS-1,Math.ceil((cy+innerHeight/2)/TILE)+1);
 
-  const spectatorFree = currentUser?.role==="spectator" && !followUid;
-  const light = spectatorFree ? null : buildLightMap();
+  const spectatorFree = false;
+  const light = buildLightMap();
 
   for(let y=minY;y<=maxY;y++){
     for(let x=minX;x<=maxX;x++){
@@ -1477,9 +1472,13 @@ async function startLevel1(game){
   $("levelBanner").classList.add("show");
   setTimeout(()=>$("levelBanner").classList.remove("show"),2600);
 
-  // Spectators also use the joystick for free camera.
-  $("joy").classList.remove("hidden");
-  $("spectatorPanel").classList.toggle("hidden",currentUser.role!=="spectator");
+  if(currentUser.role==="spectator"){
+    $("joy").classList.add("hidden");
+    $("spectatorPanel").classList.add("hidden");
+  }else{
+    $("joy").classList.remove("hidden");
+    $("spectatorPanel").classList.add("hidden");
+  }
 
   if(currentUser.role==="host"){
     $("hostFunctions").classList.remove("hidden");
@@ -1508,34 +1507,8 @@ function listenLevelPlayers(code){
   levelPlayersListener=onValue(ref(db,`games/${code}/players`),snap=>{
     remotePlayers=snap.val()||{};
 
-    const sel=$("spectateSelect");
-    if(currentUser?.role==="spectator"){
-      const old=sel.value;
-      sel.innerHTML='<option value="">Swobodna kamera</option>';
-
-      Object.entries(remotePlayers)
-        .filter(([,p])=>!p.spectator)
-        .sort((a,b)=>(a[1].name||"").localeCompare(b[1].name||"","pl"))
-        .forEach(([uid,p])=>{
-          const o=document.createElement("option");
-          o.value=uid;
-          o.textContent=p.name;
-          sel.appendChild(o);
-        });
-
-      sel.value=old;
-    }
 
     const active=Object.values(remotePlayers).filter(p=>!p.spectator);
-
-    refreshEffectPlayers();
-
-    const mySpeedUntil=currentSpeedUntil();
-    if(mySpeedUntil>Date.now() && mySpeedUntil>lastSeenSpeedUntil){
-      lastSeenSpeedUntil=mySpeedUntil;
-      showGameToast("Efekt szybkości — 10 sekund");
-    }
-    updateSpeedIndicator();
 
     const wasRevealed=escapePathRevealed;
     escapePathRevealed=active.some(p=>p.wordSolved===true);
@@ -1560,35 +1533,7 @@ $("functionsButton").addEventListener("click",()=>{
   $("functionsPanel").classList.toggle("hidden");
 });
 
-$("effectsButton").addEventListener("click",()=>{
-  $("effectsPanel").classList.toggle("hidden");
-});
 
-$("speedEffect").addEventListener("click",async()=>{
-  if(currentUser?.role!=="host" || !currentGameCode) return;
-
-  const uid=$("effectPlayer").value;
-  if(!uid) return;
-
-  const until=Date.now()+10000;
-
-  try{
-    await update(ref(db,`games/${currentGameCode}/players/${uid}/effects`),{
-      speedUntil:until
-    });
-  }catch(err){
-    console.error(err);
-    alert("Nie udało się nadać efektu.");
-  }
-});
-
-$("spectateSelect").addEventListener("change",e=>{
-  followUid=e.target.value;
-  const p=remotePlayers[followUid];
-  if(p?.x!=null){
-    spectatorPos={x:+p.x,y:+p.y};
-  }
-});
 
 function combinedMove(){
   let x=moveVec.x+keyVec.x;
@@ -1603,8 +1548,7 @@ function snappedHalf(v){
 }
 
 function tryCreateGridTarget(mv){
-  const stepDelay=speedEffectActive() ? 48 : GRID_STEP_DELAY;
-  if(moveTarget || Date.now()-lastGridStepAt < stepDelay) return;
+  if(moveTarget || Date.now()-lastGridStepAt < GRID_STEP_DELAY) return;
 
   const ax=Math.abs(mv.x);
   const ay=Math.abs(mv.y);
@@ -1635,14 +1579,8 @@ function updateMovement(){
   if(gameScreen.style.display!=="block" || !maze) return;
 
   const mv=combinedMove();
-  updateSpeedIndicator();
 
   if(currentUser?.role==="spectator"){
-    if(!followUid){
-      const sp=.11;
-      spectatorPos.x=Math.max(.5,Math.min(COLS-.5,spectatorPos.x+mv.x*sp));
-      spectatorPos.y=Math.max(.5,Math.min(ROWS-.5,spectatorPos.y+mv.y*sp));
-    }
     return;
   }
 
@@ -1654,15 +1592,14 @@ function updateMovement(){
     const dx=moveTarget.x-localPos.x;
     const dy=moveTarget.y-localPos.y;
     const dist=Math.hypot(dx,dy);
-    const gridMoveSpeed=speedEffectActive() ? 0.18 : GRID_MOVE_SPEED;
 
-    if(dist<=gridMoveSpeed){
+    if(dist<=GRID_MOVE_SPEED){
       localPos.x=moveTarget.x;
       localPos.y=moveTarget.y;
       moveTarget=null;
     }else{
-      localPos.x+=dx/dist*gridMoveSpeed;
-      localPos.y+=dy/dist*gridMoveSpeed;
+      localPos.x+=dx/dist*GRID_MOVE_SPEED;
+      localPos.y+=dy/dist*GRID_MOVE_SPEED;
     }
   }
 
