@@ -734,7 +734,8 @@ const L2_ENTRY_BRIDGE_X = 5;
 const L2_ENTRY_BRIDGE_W = 6;
 const L2_EXIT_BRIDGE_X = 23;
 const L2_EXIT_BRIDGE_W = 6;
-const L2_CHALLENGE_MS = 34000;
+const L2_EXIT_BRIDGE_Y = L2_PLATFORM_Y;
+const L2_EXIT_BRIDGE_H = L2_PLATFORM_H;
 
 let maze = null;
 let localPos = {x:START_X+.5,y:START_Y+.5};
@@ -766,6 +767,7 @@ let level2ChallengeAt = 0;
 let level2ExitAt = 0;
 let level2Schedule = new Map();
 let level2ProtectedRow = L2_PLATFORM_Y + 2;
+let level2LastFallAt = 30000;
 let level2Drowning = false;
 let level2TransitionSent = false;
 let level2PhaseWritePending = false;
@@ -1772,8 +1774,8 @@ function l2InsideEntryBridge(x,y){
 function l2InsideExitBridge(x,y){
   return x>=L2_EXIT_BRIDGE_X &&
     x<L2_EXIT_BRIDGE_X+L2_EXIT_BRIDGE_W &&
-    y>=L2_BRIDGE_Y &&
-    y<L2_BRIDGE_Y+L2_BRIDGE_H;
+    y>=L2_EXIT_BRIDGE_Y &&
+    y<L2_EXIT_BRIDGE_Y+L2_EXIT_BRIDGE_H;
 }
 
 function l2InsideLeftGround(x,y){
@@ -1805,19 +1807,32 @@ function buildLevel2Schedule(seed){
     candidates[j]=tmp;
   }
 
-  const count=Math.min(14,candidates.length);
-  let fallAt=3800;
+  let cursor=0;
+  let fallAt=4800;
+  let group=0;
+  let lastFallAt=fallAt;
 
-  for(let i=0;i<count;i++){
-    fallAt+=1400+rnd()*700;
-    const warningDuration=1150;
-    const c=candidates[i];
+  while(cursor<candidates.length){
+    const remaining=candidates.length-cursor;
+    const groupSize=Math.min(remaining,7+Math.floor(rnd()*3));
+    const warningAt=fallAt-1700;
 
-    level2Schedule.set(c.x+","+c.y,{
-      warningAt:fallAt-warningDuration,
-      fallAt
-    });
+    for(let i=0;i<groupSize;i++){
+      const c=candidates[cursor+i];
+      level2Schedule.set(c.x+","+c.y,{
+        warningAt,
+        fallAt,
+        group
+      });
+    }
+
+    cursor+=groupSize;
+    lastFallAt=fallAt;
+    fallAt+=3300+rnd()*600;
+    group++;
   }
+
+  level2LastFallAt=lastFallAt;
 }
 
 function level2OakState(x,y,now=Date.now()){
@@ -1842,11 +1857,6 @@ function level2ExitBridgeReady(now=Date.now()){
 
 function level2CellSolid(tx,ty,now=Date.now()){
   if(tx<0||ty<0||tx>=L2_COLS||ty>=L2_ROWS) return false;
-
-  const doorWall=
-    ((tx===1 || tx===L2_COLS-3) && ty>=6 && ty<=8);
-
-  if(doorWall) return false;
 
   if(l2InsideLeftGround(tx,ty) || l2InsideRightGround(tx,ty)) return true;
 
@@ -1950,9 +1960,9 @@ function drawRaisedLevel2Tile(img,x,y,size,height,fallback,tint=null,offset=0,al
 }
 
 function level2DoorRect(side,tile,ox,oy){
-  const x=side==="left" ? 1.1 : 30.9;
-  const y=7.1;
-  const w=tile*.95;
+  const x=side==="left" ? .03 : L2_COLS-1+.03;
+  const y=7.15;
+  const w=tile*.94;
   const h=w*(168/128);
   return {
     x:ox+x*tile,
@@ -1966,6 +1976,10 @@ function drawLevel2Door(side,tile,ox,oy,intensity=1){
   if(intensity<=0) return;
 
   const r=level2DoorRect(side,tile,ox,oy);
+
+  ctx.save();
+  ctx.fillStyle="#17110d";
+  ctx.fillRect(r.x,r.y,r.w,r.h);
 
   if(tex.door.complete && tex.door.naturalWidth){
     ctx.drawImage(tex.door,r.x,r.y,r.w,r.h);
@@ -1983,6 +1997,7 @@ function drawLevel2Door(side,tile,ox,oy,intensity=1){
 
   ctx.fillStyle=`rgba(255,183,72,${.04+intensity*.16})`;
   ctx.fillRect(r.x,r.y,r.w,r.h);
+  ctx.restore();
 }
 
 function collectLevel2TorchSources(){
@@ -2134,31 +2149,33 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
     );
   }
 
-  drawRaisedLevel2Tile(
-    tex.wall,
-    ox,
-    oy+8*tile,
-    tile,
-    tile*.30,
-    "#555",
-    null,
-    0,
-    1,
-    level2WallLightIntensity(0,8,light)
-  );
+  for(let y=1;y<L2_ROWS-1;y++){
+    drawRaisedLevel2Tile(
+      tex.wall,
+      ox,
+      oy+y*tile,
+      tile,
+      tile*.30,
+      "#555",
+      null,
+      0,
+      1,
+      level2WallLightIntensity(0,y,light)
+    );
 
-  drawRaisedLevel2Tile(
-    tex.wall,
-    ox+(L2_COLS-1)*tile,
-    oy+8*tile,
-    tile,
-    tile*.30,
-    "#555",
-    null,
-    0,
-    1,
-    level2WallLightIntensity(L2_COLS-1,8,light)
-  );
+    drawRaisedLevel2Tile(
+      tex.wall,
+      ox+(L2_COLS-1)*tile,
+      oy+y*tile,
+      tile,
+      tile*.30,
+      "#555",
+      null,
+      0,
+      1,
+      level2WallLightIntensity(L2_COLS-1,y,light)
+    );
+  }
 
   let entryOffset=0;
   let entryAlpha=1;
@@ -2198,9 +2215,10 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
       let alpha=1;
 
       if(state==="warning"){
-        const elapsed=now-level2ChallengeAt;
-        const pulse=.28+.24*(.5+.5*Math.sin(elapsed/95));
-        tint=`rgba(220,25,25,${pulse})`;
+        const timing=level2Schedule.get(x+","+y);
+        const elapsed=now-level2ChallengeAt-timing.warningAt;
+        const pulse=.28+.30*(.5+.5*Math.sin(elapsed/100));
+        tint=`rgba(225,24,24,${pulse})`;
       }
 
       if(state==="falling"){
@@ -2230,7 +2248,7 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
     const offset=(1-p)*tile*.68;
     const alpha=.2+p*.8;
 
-    for(let y=L2_BRIDGE_Y;y<L2_BRIDGE_Y+L2_BRIDGE_H;y++){
+    for(let y=L2_EXIT_BRIDGE_Y;y<L2_EXIT_BRIDGE_Y+L2_EXIT_BRIDGE_H;y++){
       for(let x=L2_EXIT_BRIDGE_X;x<L2_EXIT_BRIDGE_X+L2_EXIT_BRIDGE_W;x++){
         drawRaisedLevel2Tile(
           tex.spruce,
@@ -2248,47 +2266,19 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
     }
   }
 
-  for(let y=6;y<=8;y++){
-    drawRaisedLevel2Tile(
-      tex.wall,
-      ox+1*tile,
-      oy+y*tile,
-      tile,
-      tile*.30,
-      "#555",
-      null,
-      0,
-      1,
-      level2WallLightIntensity(1,y,light)
-    );
-
-    drawRaisedLevel2Tile(
-      tex.wall,
-      ox+(L2_COLS-3)*tile,
-      oy+y*tile,
-      tile,
-      tile*.30,
-      "#555",
-      null,
-      0,
-      1,
-      level2WallLightIntensity(L2_COLS-3,y,light)
-    );
-  }
-
   const leftDoorLight=Math.max(
+    level2WallLightIntensity(0,7,light),
+    level2WallLightIntensity(0,8,light),
     light?.[7]?.[1]||0,
-    light?.[8]?.[1]||0,
-    light?.[7]?.[2]||0,
-    light?.[8]?.[2]||0
+    light?.[8]?.[1]||0
   );
 
-  const rightDoorX=L2_COLS-3;
+  const rightWallX=L2_COLS-1;
   const rightDoorLight=Math.max(
-    light?.[7]?.[rightDoorX]||0,
-    light?.[8]?.[rightDoorX]||0,
-    light?.[7]?.[rightDoorX-1]||0,
-    light?.[8]?.[rightDoorX-1]||0
+    level2WallLightIntensity(rightWallX,7,light),
+    level2WallLightIntensity(rightWallX,8,light),
+    light?.[7]?.[L2_COLS-2]||0,
+    light?.[8]?.[L2_COLS-2]||0
   );
 
   drawLevel2Door("left",tile,ox,oy,leftDoorLight);
@@ -2356,7 +2346,6 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
       }else{
         ctx.fillStyle=p.host ? "#d6b25e" : "#b8b8bd";
         ctx.fillRect(sx-r,sy-r,r*2,r*2);
-
         ctx.font="900 14px monospace";
         ctx.textAlign="center";
         ctx.textBaseline="middle";
@@ -2370,7 +2359,6 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
       ctx.strokeStyle="#fff";
       ctx.lineWidth=2;
       ctx.stroke();
-
       ctx.font="700 12px system-ui";
       ctx.textAlign="center";
       ctx.textBaseline="bottom";
@@ -2465,7 +2453,7 @@ function maybeAdvanceLevel2Host(){
   if(
     level2Phase==="challenge" &&
     level2ChallengeAt &&
-    Date.now()-level2ChallengeAt>=L2_CHALLENGE_MS
+    Date.now()-level2ChallengeAt>=level2LastFallAt+1600
   ){
     level2PhaseWritePending=true;
     update(ref(db,`games/${currentGameCode}`),{
@@ -2535,7 +2523,7 @@ async function startLevel2(game){
   buildLevel2Schedule(level2Seed);
   applyLevel2GameState(game);
 
-  localPos={x:2.5,y:8};
+  localPos={x:2.5,y:7.5};
   spectatorPos={x:localPos.x,y:localPos.y};
   moveTarget=null;
   resetMovementInput();
@@ -2947,7 +2935,7 @@ async function teleportHostToDoor(){
   }
 
   if(currentLevel===2){
-    localPos={x:30.5,y:8};
+    localPos={x:32,y:7.5};
     moveTarget=null;
 
     await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
@@ -2976,7 +2964,7 @@ function snappedHalf(v){
 }
 
 function tryCreateGridTarget(mv){
-  if(Date.now()-lastGridStepAt < GRID_STEP_DELAY) return false;
+  if(moveTarget || Date.now()-lastGridStepAt < GRID_STEP_DELAY) return false;
 
   const ax=Math.abs(mv.x);
   const ay=Math.abs(mv.y);
@@ -2996,13 +2984,10 @@ function tryCreateGridTarget(mv){
   const tx=snappedHalf(baseX+dx);
   const ty=snappedHalf(baseY+dy);
 
-  lastGridStepAt=Date.now();
-
   if(!canMove(tx,ty)) return false;
 
-  localPos.x=tx;
-  localPos.y=ty;
-  moveTarget=null;
+  moveTarget={x:tx,y:ty};
+  lastGridStepAt=Date.now();
   return true;
 }
 
@@ -3017,11 +3002,23 @@ function updateMovement(){
 
   tryCreateGridTarget(mv);
 
-  if(currentLevel===2){
-    const tx=Math.floor(localPos.x);
-    const ty=Math.floor(localPos.y);
+  if(moveTarget){
+    const dx=moveTarget.x-localPos.x;
+    const dy=moveTarget.y-localPos.y;
+    const dist=Math.hypot(dx,dy);
 
-    if(!level2CellSolid(tx,ty,Date.now())){
+    if(dist<=GRID_MOVE_SPEED){
+      localPos.x=moveTarget.x;
+      localPos.y=moveTarget.y;
+      moveTarget=null;
+    }else{
+      localPos.x+=dx/dist*GRID_MOVE_SPEED;
+      localPos.y+=dy/dist*GRID_MOVE_SPEED;
+    }
+  }
+
+  if(currentLevel===2){
+    if(!canMoveLevel2(localPos.x,localPos.y)){
       drownLevel2();
       return;
     }
@@ -3056,6 +3053,7 @@ function updateMovement(){
     }).catch(()=>{});
   }
 }
+
 requestAnimationFrame(updateMovement);
 
 const joy=$("joy");
