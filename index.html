@@ -415,10 +415,10 @@ const canvas = $("mazeCanvas");
 const ctx = canvas.getContext("2d", { alpha:false });
 
 const TILE = 64;
-const COLS = 39;
-const ROWS = 23;
-const START_X = 19;
-const START_Y = 11;
+const COLS = 61;
+const ROWS = 37;
+const START_X = 30;
+const START_Y = 18;
 const LIGHT_RADIUS = 5;
 
 let maze = null;
@@ -460,53 +460,159 @@ function seededRandom(seed){
 
 function generateMaze(seed){
   const rnd = seededRandom(seed);
+
+  // Real tile grid: 1 = wall, 0 = walkable.
+  // A logical maze cell becomes a 3x3 walkable area.
+  // Neighboring logical cells are separated by a 1-block wall,
+  // and the connector cut through that wall is also 3 blocks wide.
   const g = Array.from({length:ROWS},()=>Array(COLS).fill(1));
-  const stack = [[START_X,START_Y]];
-  const dirs = [[2,0],[-2,0],[0,2],[0,-2]];
-  g[START_Y][START_X] = 0;
+
+  const LOGICAL_COLS = 15;
+  const LOGICAL_ROWS = 9;
+  const CELL = 3;
+  const STEP = 4; // 3 floor blocks + 1 separating wall
+  const OFFSET_X = 1;
+  const OFFSET_Y = 1;
+
+  const visited = Array.from(
+    {length:LOGICAL_ROWS},
+    ()=>Array(LOGICAL_COLS).fill(false)
+  );
+
+  function carveCell(lx,ly){
+    const ax = OFFSET_X + lx*STEP;
+    const ay = OFFSET_Y + ly*STEP;
+    for(let yy=0; yy<CELL; yy++){
+      for(let xx=0; xx<CELL; xx++){
+        g[ay+yy][ax+xx] = 0;
+      }
+    }
+  }
+
+  function connectCells(ax,ay,bx,by){
+    const x1 = OFFSET_X + ax*STEP;
+    const y1 = OFFSET_Y + ay*STEP;
+    const x2 = OFFSET_X + bx*STEP;
+    const y2 = OFFSET_Y + by*STEP;
+
+    if(bx > ax){
+      // Open the 1-block wall between cells, 3 blocks high.
+      const wx = x1 + CELL;
+      for(let i=0;i<CELL;i++) g[y1+i][wx] = 0;
+    }else if(bx < ax){
+      const wx = x2 + CELL;
+      for(let i=0;i<CELL;i++) g[y2+i][wx] = 0;
+    }else if(by > ay){
+      // Open the 1-block wall between cells, 3 blocks wide.
+      const wy = y1 + CELL;
+      for(let i=0;i<CELL;i++) g[wy][x1+i] = 0;
+    }else if(by < ay){
+      const wy = y2 + CELL;
+      for(let i=0;i<CELL;i++) g[wy][x2+i] = 0;
+    }
+  }
+
+  // Perfect maze on the logical grid.
+  const startLX = Math.floor(LOGICAL_COLS/2);
+  const startLY = Math.floor(LOGICAL_ROWS/2);
+  const stack = [[startLX,startLY]];
+  visited[startLY][startLX] = true;
+  carveCell(startLX,startLY);
+
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
 
   while(stack.length){
-    const [x,y] = stack[stack.length-1];
+    const [lx,ly] = stack[stack.length-1];
+
     const options = dirs
-      .map(([dx,dy])=>[x+dx,y+dy,dx,dy])
-      .filter(([nx,ny])=>nx>0 && ny>0 && nx<COLS-1 && ny<ROWS-1 && g[ny][nx]===1);
+      .map(([dx,dy])=>[lx+dx,ly+dy])
+      .filter(([nx,ny])=>
+        nx>=0 && ny>=0 &&
+        nx<LOGICAL_COLS && ny<LOGICAL_ROWS &&
+        !visited[ny][nx]
+      );
 
     if(!options.length){
       stack.pop();
       continue;
     }
 
-    const [nx,ny,dx,dy] = options[Math.floor(rnd()*options.length)];
-    g[y+dy/2][x+dx/2] = 0;
-    g[ny][nx] = 0;
+    const [nx,ny] = options[Math.floor(rnd()*options.length)];
+    connectCells(lx,ly,nx,ny);
+    carveCell(nx,ny);
+    visited[ny][nx] = true;
     stack.push([nx,ny]);
   }
 
-  // A few extra openings make the maze feel less like one thin corridor,
-  // while keeping it clearly maze-like.
-  for(let i=0;i<18;i++){
-    const x = 2 + Math.floor(rnd()*(COLS-4));
-    const y = 2 + Math.floor(rnd()*(ROWS-4));
-    if(g[y][x]===1){
-      const horizontal = g[y][x-1]===0 && g[y][x+1]===0;
-      const vertical = g[y-1][x]===0 && g[y+1][x]===0;
-      if(horizontal || vertical) g[y][x]=0;
+  // Central spawn room: exactly 8x8 blocks.
+  const ROOM_W = 8;
+  const ROOM_H = 8;
+  const roomLeft = Math.floor(COLS/2 - ROOM_W/2);
+  const roomTop = Math.floor(ROWS/2 - ROOM_H/2);
+
+  for(let y=roomTop; y<roomTop+ROOM_H; y++){
+    for(let x=roomLeft; x<roomLeft+ROOM_W; x++){
+      g[y][x] = 0;
     }
   }
 
-  // Choose an exit far away from the middle.
+  // Guarantee 3-block-wide exits from the 8x8 center room
+  // in all four directions until they touch the generated maze.
+  const roomMidX = roomLeft + Math.floor(ROOM_W/2);
+  const roomMidY = roomTop + Math.floor(ROOM_H/2);
+
+  // North / south corridors: 3 blocks wide.
+  for(let y=roomTop-1; y>=1; y--){
+    for(let x=roomMidX-1; x<=roomMidX+1; x++) g[y][x]=0;
+    if(
+      y < roomTop-2 &&
+      [roomMidX-1,roomMidX,roomMidX+1].some(x=>g[y-1]?.[x]===0)
+    ) break;
+  }
+
+  for(let y=roomTop+ROOM_H; y<ROWS-1; y++){
+    for(let x=roomMidX-1; x<=roomMidX+1; x++) g[y][x]=0;
+    if(
+      y > roomTop+ROOM_H+1 &&
+      [roomMidX-1,roomMidX,roomMidX+1].some(x=>g[y+1]?.[x]===0)
+    ) break;
+  }
+
+  // West / east corridors: 3 blocks wide.
+  for(let x=roomLeft-1; x>=1; x--){
+    for(let y=roomMidY-1; y<=roomMidY+1; y++) g[y][x]=0;
+    if(
+      x < roomLeft-2 &&
+      [roomMidY-1,roomMidY,roomMidY+1].some(y=>g[y]?.[x-1]===0)
+    ) break;
+  }
+
+  for(let x=roomLeft+ROOM_W; x<COLS-1; x++){
+    for(let y=roomMidY-1; y<=roomMidY+1; y++) g[y][x]=0;
+    if(
+      x > roomLeft+ROOM_W+1 &&
+      [roomMidY-1,roomMidY,roomMidY+1].some(y=>g[y]?.[x+1]===0)
+    ) break;
+  }
+
+  // Pick an exit far from the middle, near the outside of the maze.
   const edgeCandidates = [];
   for(let y=1;y<ROWS-1;y++){
     for(let x=1;x<COLS-1;x++){
       if(g[y][x]!==0) continue;
+
       const edgeDistance = Math.min(x,y,COLS-1-x,ROWS-1-y);
       const centerDistance = Math.abs(x-START_X)+Math.abs(y-START_Y);
-      if(edgeDistance<=2 && centerDistance>15) edgeCandidates.push({x,y,score:centerDistance});
+
+      if(edgeDistance<=3 && centerDistance>25){
+        edgeCandidates.push({x,y,score:centerDistance});
+      }
     }
   }
+
   edgeCandidates.sort((a,b)=>b.score-a.score);
-  const top = edgeCandidates.slice(0,Math.max(1,Math.min(10,edgeCandidates.length)));
-  exitCell = top[Math.floor(rnd()*top.length)] || {x:1,y:1};
+  const top = edgeCandidates.slice(0,Math.max(1,Math.min(14,edgeCandidates.length)));
+  exitCell = top[Math.floor(rnd()*top.length)] || {x:2,y:2};
 
   return {g,rnd};
 }
