@@ -482,7 +482,7 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
     <p class="sub">Zaloguj się swoim loginem i pinem podanym na kartce</p>
     <form id="loginForm">
       <label for="login">Login</label>
-      <input id="login" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+      <input id="login" type="text" inputmode="text" maxlength="32" autocomplete="username" autocapitalize="none" spellcheck="false" required>
       <label for="pin">PIN</label>
       <input id="pin" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" required>
       <button class="primary" type="submit">Zaloguj się</button>
@@ -638,6 +638,10 @@ const loginScreen = $("loginScreen");
 const homeScreen = $("homeScreen");
 const loginLogo = $("loginLogo");
 const error = $("error");
+const loginInput = $("login");
+loginInput.maxLength = 32;
+loginInput.removeAttribute("minlength");
+
 
 // Login is converted locally to a technical Firebase email.
 // No names, PINs or roles are stored in this public HTML.
@@ -1038,26 +1042,41 @@ function getAvatarImage(p){
 function drawAvatar(p,cx,cy){
   const sx = p.x*TILE-cx+innerWidth/2;
   const sy = p.y*TILE-cy+innerHeight/2;
-  const r = 17;
+  const r = 18;
 
-  // Profile pictures are lobby-only. In the maze every player uses
-  // a simple marker so the photo never appears during gameplay.
+  const im=getAvatarImage(p);
+
+  ctx.save();
   ctx.beginPath();
   ctx.arc(sx,sy,r,0,Math.PI*2);
-  ctx.fillStyle=p.host ? "#d6b25e" : "#b8b8bd";
-  ctx.fill();
-  ctx.lineWidth=2;
+  ctx.clip();
+
+  if(im && im.complete && im.naturalWidth){
+    const side=Math.min(im.naturalWidth,im.naturalHeight);
+    const ox=(im.naturalWidth-side)/2;
+    const oy=(im.naturalHeight-side)/2;
+    ctx.drawImage(im,ox,oy,side,side,sx-r,sy-r,r*2,r*2);
+  }else{
+    ctx.fillStyle=p.host ? "#d6b25e" : "#b8b8bd";
+    ctx.fillRect(sx-r,sy-r,r*2,r*2);
+
+    ctx.font="900 14px monospace";
+    ctx.textAlign="center";
+    ctx.textBaseline="middle";
+    ctx.fillStyle="#18181b";
+    ctx.fillText((p.name || "?").trim().charAt(0).toUpperCase(),sx,sy+1);
+  }
+
+  ctx.restore();
+
+  ctx.beginPath();
+  ctx.arc(sx,sy,r+1,0,Math.PI*2);
   ctx.strokeStyle="#f4f4f5";
+  ctx.lineWidth=2;
   ctx.stroke();
 
-  const initial=(p.name || "?").trim().charAt(0).toUpperCase();
-  ctx.font="900 14px monospace";
-  ctx.textAlign="center";
-  ctx.textBaseline="middle";
-  ctx.fillStyle="#18181b";
-  ctx.fillText(initial,sx,sy+1);
-
   ctx.font="700 12px system-ui";
+  ctx.textAlign="center";
   ctx.textBaseline="bottom";
   ctx.lineWidth=4;
   ctx.strokeStyle="#000";
@@ -1559,7 +1578,7 @@ function renderGame(){
       x:localPos.x,
       y:localPos.y,
       name:currentUser.name,
-      avatar:avatarData,
+      avatar:avatarData || localStorage.getItem("lamiglowki_avatar_"+auth.currentUser.uid) || null,
       spectator:false,
       finishedLevel1:playerFinished
     };
