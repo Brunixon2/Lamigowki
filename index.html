@@ -26,7 +26,7 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
 #homeScreen{display:none;overflow:auto}
 .home{width:100%;max-width:520px;margin:0 auto;padding-bottom:24px}
 .homeTop{text-align:center;padding-top:8px}
-.homeTop .logo{width:360px;max-width:92vw;height:200px;margin-bottom:8px}
+.homeTop .logo{width:320px;max-width:90vw;height:180px;margin-bottom:8px}
 .homeTop h2{font-size:28px;margin:0 0 5px}
 .welcome{color:#a1a1aa;margin:0 0 22px}
 .card{background:#151518;border:1px solid #29292e;border-radius:16px;padding:16px;margin:12px 0}
@@ -42,6 +42,24 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
 .playerList li:last-child{border-bottom:0}
 .dot{width:8px;height:8px;border-radius:2px;background:#71717a;flex:none}
 .note{color:#8b8b93;font-size:12px;line-height:1.4;margin-top:10px}
+
+/* Level 1 */
+#gameScreen{display:none;padding:0;overflow:hidden;background:#050505;position:fixed;inset:0;touch-action:none}
+#mazeCanvas{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated;background:#050505}
+#levelBanner{position:absolute;z-index:20;left:50%;top:0;transform:translate(-50%,-130%);text-align:center;padding:14px 34px 16px;background:linear-gradient(#777,#3d3d3d);border:4px solid #222;border-radius:5px;box-shadow:0 6px 0 #181818,0 12px 28px #000b;text-shadow:2px 3px #222;font-family:monospace;font-weight:900;transition:transform .7s cubic-bezier(.2,.8,.2,1)}
+#levelBanner.show{transform:translate(-50%,18px)}
+#levelBanner .big{font-size:31px} #levelBanner .small{font-size:18px;margin-top:2px}
+#wordHud{position:absolute;z-index:15;top:max(14px,env(safe-area-inset-top));left:14px;background:#111d;border:1px solid #444;border-radius:10px;padding:8px 11px;font-family:monospace;font-weight:800;letter-spacing:2px}
+#joy{position:absolute;z-index:15;left:24px;bottom:max(24px,env(safe-area-inset-bottom));width:126px;height:126px;border-radius:50%;background:#ffffff18;border:2px solid #ffffff30;touch-action:none}
+#joyKnob{position:absolute;width:54px;height:54px;border-radius:50%;background:#ffffff55;border:2px solid #ffffff66;left:34px;top:34px}
+#exitModal,#avatarModal{position:fixed;z-index:50;inset:0;background:#000b;display:flex;align-items:center;justify-content:center;padding:20px}
+.modalBox{width:min(420px,100%);background:#151518;border:1px solid #3f3f46;border-radius:16px;padding:20px;text-align:center}
+.modalBox h2{margin:0 0 8px}.modalBox p{color:#aaa}.modalBox input{margin-top:10px}.modalActions{display:flex;gap:10px;margin-top:12px}.modalActions button{margin:0}
+#avatarPreview{width:108px;height:108px;border-radius:50%;object-fit:cover;background:#27272a;border:3px solid #52525b;margin:12px auto;display:block}
+#avatarModal video{width:100%;max-height:280px;background:#000;border-radius:12px;object-fit:cover}
+#spectatorPanel{position:absolute;z-index:18;right:12px;top:max(12px,env(safe-area-inset-top));width:170px;background:#111d;border:1px solid #444;border-radius:10px;padding:8px}
+#spectatorPanel select{width:100%;height:40px;background:#222;color:white;border:1px solid #555;border-radius:8px}
+#finishWait{position:absolute;z-index:17;left:50%;bottom:24px;transform:translateX(-50%);background:#111e;border:1px solid #555;border-radius:10px;padding:10px 14px;text-align:center;display:none}
 </style>
 </head>
 <body>
@@ -101,6 +119,17 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
 
 
 
+
+<section id="gameScreen">
+  <canvas id="mazeCanvas"></canvas>
+  <div id="levelBanner"><div class="big">Level 1</div><div class="small">Labirynt</div></div>
+  <div id="wordHud">SŁOWO: <span id="wordProgress">????</span></div>
+  <div id="joy"><div id="joyKnob"></div></div>
+  <div id="spectatorPanel" class="hidden"><select id="spectateSelect"><option value="">Swobodna kamera</option></select></div>
+  <div id="finishWait">Czekamy na pozostałych… <span id="finishCount"></span></div>
+</section>
+<div id="exitModal" class="hidden"><div class="modalBox"><div style="font-size:52px">🔒</div><h2>Wyjście</h2><p>Wpisz znalezione słowo.</p><input id="exitWord" maxlength="7" autocomplete="off"><div class="modalActions"><button id="exitCancel" class="hostButton">Wróć</button><button id="exitSubmit" class="primary">Otwórz</button></div><div id="exitError" class="error"></div></div></div>
+<div id="avatarModal" class="hidden"><div class="modalBox"><h2>Twoja postać</h2><p>Zrób zdjęcie albo wybierz plik PNG/JPG.</p><video id="camera" class="hidden" autoplay playsinline></video><img id="avatarPreview" alt="Avatar"><input id="avatarFile" type="file" accept="image/png,image/jpeg" class="hidden"><div class="modalActions"><button id="takePhoto" class="hostButton">Zrób zdjęcie</button><button id="chooseAvatar" class="hostButton">Wgraj plik</button></div><button id="saveAvatar" class="primary">Gotowe</button></div></div>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
 import {
@@ -145,6 +174,50 @@ function authEmail(login) {
 function authPassword(pin) {
   return "LG-" + pin + "-26";
 }
+
+
+const gameScreen = $("gameScreen");
+const canvas = $("mazeCanvas");
+const ctx = canvas.getContext("2d");
+const TILE=64, COLS=31, ROWS=31;
+let maze=null, localPos={x:15.5,y:15.5}, remotePlayers={}, moveVec={x:0,y:0}, lastPosWrite=0, gameStartedHandled=false;
+let foundLetters=new Set(), levelWord="", exitCell={x:1,y:1}, letterCells=[];
+let cameraStream=null, avatarData=null, followUid="";
+const tex={};
+for (const [k,u] of Object.entries({wall:'assets/cobblestone.png',moss:'assets/mossy_cobblestone.png',dirt:'assets/dirt.png'})){tex[k]=new Image();tex[k].src=u;}
+
+function generateMaze(seed){
+  let a=(seed||1)>>>0; const rnd=()=>((a=(a*1664525+1013904223)>>>0)/4294967296);
+  const g=Array.from({length:ROWS},()=>Array(COLS).fill(1));
+  const sx=15,sy=15; g[sy][sx]=0; const st=[[sx,sy]], dirs=[[2,0],[-2,0],[0,2],[0,-2]];
+  while(st.length){const [x,y]=st[st.length-1];const opts=dirs.map(d=>[x+d[0],y+d[1],d]).filter(([nx,ny])=>nx>0&&ny>0&&nx<COLS-1&&ny<ROWS-1&&g[ny][nx]);if(!opts.length){st.pop();continue}const o=opts[Math.floor(rnd()*opts.length)],nx=o[0],ny=o[1],d=o[2];g[y+d[1]/2][x+d[0]/2]=0;g[ny][nx]=0;st.push([nx,ny]);}
+  const edges=[];for(let y=1;y<ROWS-1;y++)for(let x=1;x<COLS-1;x++)if(g[y][x]===0&&(x<3||y<3||x>COLS-4||y>ROWS-4))edges.push({x,y});
+  exitCell=edges[Math.floor(rnd()*edges.length)]||{x:1,y:1};
+  return {g,rnd};
+}
+function pickLetterCells(rnd,n){const cells=[];for(let y=1;y<ROWS-1;y++)for(let x=1;x<COLS-1;x++)if(maze[y][x]===0&&Math.hypot(x-15,y-15)>5&&Math.hypot(x-exitCell.x,y-exitCell.y)>3)cells.push({x,y});for(let i=cells.length-1;i;i--){const j=Math.floor(rnd()*(i+1));[cells[i],cells[j]]=[cells[j],cells[i]];}return cells.slice(0,n);}
+function resizeCanvas(){canvas.width=innerWidth*devicePixelRatio;canvas.height=innerHeight*devicePixelRatio;canvas.style.width=innerWidth+'px';canvas.style.height=innerHeight+'px';}
+addEventListener('resize',resizeCanvas);resizeCanvas();
+function canMove(x,y){const r=.25;return [[x-r,y-r],[x+r,y-r],[x-r,y+r],[x+r,y+r]].every(([px,py])=>maze?.[Math.floor(py)]?.[Math.floor(px)]===0);}
+function drawAvatar(p,cx,cy,scale){const sx=(p.x*TILE-cx)*scale+innerWidth/2,sy=(p.y*TILE-cy)*scale+innerHeight/2,r=18*scale;ctx.save();ctx.beginPath();ctx.arc(sx,sy,r,0,Math.PI*2);ctx.clip();if(p.avatar){const im=new Image();im.src=p.avatar;ctx.drawImage(im,sx-r,sy-r,r*2,r*2)}else{ctx.fillStyle='#777';ctx.fillRect(sx-r,sy-r,r*2,r*2)}ctx.restore();ctx.font=`${Math.max(11,12*scale)}px system-ui`;ctx.textAlign='center';ctx.fillStyle='white';ctx.strokeStyle='#000';ctx.lineWidth=3;ctx.strokeText(p.name||'',sx,sy-r-7);ctx.fillText(p.name||'',sx,sy-r-7);}
+function renderGame(){if(gameScreen.style.display!=='block'){requestAnimationFrame(renderGame);return}const d=devicePixelRatio;ctx.setTransform(d,0,0,d,0,0);ctx.clearRect(0,0,innerWidth,innerHeight);let cx=localPos.x*TILE,cy=localPos.y*TILE;if(currentUser?.role==='spectator'&&followUid&&remotePlayers[followUid]){cx=remotePlayers[followUid].x*TILE;cy=remotePlayers[followUid].y*TILE}const minX=Math.floor((cx-innerWidth/2)/TILE)-1,maxX=Math.ceil((cx+innerWidth/2)/TILE)+1,minY=Math.floor((cy-innerHeight/2)/TILE)-1,maxY=Math.ceil((cy+innerHeight/2)/TILE)+1;for(let y=minY;y<=maxY;y++)for(let x=minX;x<=maxX;x++){if(x<0||y<0||x>=COLS||y>=ROWS)continue;const dx=x*TILE-cx+innerWidth/2,dy=y*TILE-cy+innerHeight/2;if(maze[y][x]){const im=((x*37+y*17)%19===0)?tex.moss:tex.wall;ctx.drawImage(im,dx,dy,TILE+1,TILE+1)}else ctx.drawImage(tex.dirt,dx,dy,TILE+1,TILE+1);}
+  for(let i=0;i<letterCells.length;i++){const c=letterCells[i];if(foundLetters.has(i))continue;const x=c.x*TILE-cx+innerWidth/2+TILE/2,y=c.y*TILE-cy+innerHeight/2+TILE/2;ctx.font='bold 28px monospace';ctx.textAlign='center';ctx.fillStyle='#fef3c7';ctx.fillText(levelWord[i],x,y+10)}
+  {const x=exitCell.x*TILE-cx+innerWidth/2,y=exitCell.y*TILE-cy+innerHeight/2;ctx.fillStyle='#5b321d';ctx.fillRect(x+8,y+4,TILE-16,TILE-8);ctx.font='26px sans-serif';ctx.fillText('🔒',x+TILE/2,y+40)}
+  const all={...remotePlayers};if(currentUser?.role!=='spectator')all[auth.currentUser.uid]={...all[auth.currentUser.uid],x:localPos.x,y:localPos.y,name:currentUser.name,avatar:avatarData};Object.values(all).forEach(p=>p.x!=null&&drawAvatar(p,cx,cy,1));
+  // Warm torch light: dark overlay with a radial hole centered on local player/camera target.
+  ctx.save();ctx.fillStyle='rgba(0,0,0,.78)';ctx.fillRect(0,0,innerWidth,innerHeight);if(currentUser?.role!=='spectator'){ctx.globalCompositeOperation='destination-out';const gr=ctx.createRadialGradient(innerWidth/2,innerHeight/2,35,innerWidth/2,innerHeight/2,210);gr.addColorStop(0,'rgba(0,0,0,1)');gr.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=gr;ctx.fillRect(0,0,innerWidth,innerHeight);ctx.globalCompositeOperation='source-over';const warm=ctx.createRadialGradient(innerWidth/2,innerHeight/2,10,innerWidth/2,innerHeight/2,180);warm.addColorStop(0,'rgba(255,190,70,.20)');warm.addColorStop(1,'rgba(255,190,70,0)');ctx.fillStyle=warm;ctx.fillRect(0,0,innerWidth,innerHeight)}ctx.restore();requestAnimationFrame(renderGame);}
+requestAnimationFrame(renderGame);
+const WORDS=['KAMIEN','OGNISKO','LATARN','ZAMEK','KLUCZ','MOST','LAS','DROGA','SKARB','BRAMA','MUR','TUNEL','JASKIN','RZEKA','WODA','ZIEMIA','NOC','CIEN','KSIĘŻYC','GWIAZDA','MAPA','KOD','SZYFR','HASLO','PUŁAPKA','DRZWI','SCHODY','KORYTAR','POKÓJ','WIEŻA','MROK','ISKRA','PŁOMIEŃ','ŚWIATŁO','MECH','CEGŁA','GŁAZ','ŚCIEŻKA','KIERUNEK','ZNAK','SEKRET','ZAGADKA','LITERA','SŁOWO','ODWAGA','MISJA','CEL','META','START','WYJŚCIE'].map(w=>w.slice(0,7).toUpperCase());
+async function startLevel1(game){gameStartedHandled=true;loginScreen.style.display='none';homeScreen.style.display='none';gameScreen.style.display='block';document.body.style.overflow='hidden';const seed=game.levelSeed||game.startedAt||1;const m=generateMaze(seed);maze=m.g;levelWord=game.levelWord||WORDS[seed%WORDS.length];letterCells=pickLetterCells(m.rnd,levelWord.length);localPos={x:15.5,y:15.5};foundLetters.clear();$('wordProgress').textContent='?'.repeat(levelWord.length);$('levelBanner').classList.add('show');setTimeout(()=>$('levelBanner').classList.remove('show'),2600);$('joy').classList.toggle('hidden',currentUser.role==='spectator');$('spectatorPanel').classList.toggle('hidden',currentUser.role!=='spectator');listenLevelPlayers(currentGameCode);}
+function listenLevelPlayers(code){onValue(ref(db,`games/${code}/players`),snap=>{remotePlayers=snap.val()||{};const sel=$('spectateSelect');if(currentUser?.role==='spectator'){const old=sel.value;sel.innerHTML='<option value="">Swobodna kamera</option>';Object.entries(remotePlayers).filter(([u,p])=>!p.spectator).forEach(([u,p])=>{const o=document.createElement('option');o.value=u;o.textContent=p.name;sel.appendChild(o)});sel.value=old;}const active=Object.values(remotePlayers).filter(p=>!p.spectator),done=active.filter(p=>p.finishedLevel1).length;$('finishCount').textContent=`${done}/${active.length}`;});}
+$('spectateSelect').addEventListener('change',e=>followUid=e.target.value);
+function updateMovement(){if(gameScreen.style.display!=='block'){requestAnimationFrame(updateMovement);return}if(currentUser?.role!=='spectator'){const sp=.055,nx=localPos.x+moveVec.x*sp,ny=localPos.y+moveVec.y*sp;if(canMove(nx,localPos.y))localPos.x=nx;if(canMove(localPos.x,ny))localPos.y=ny;for(let i=0;i<letterCells.length;i++)if(!foundLetters.has(i)&&Math.hypot(localPos.x-(letterCells[i].x+.5),localPos.y-(letterCells[i].y+.5))<.55){foundLetters.add(i);$('wordProgress').textContent=levelWord.split('').map((c,j)=>foundLetters.has(j)?c:'?').join('');}if(Math.hypot(localPos.x-(exitCell.x+.5),localPos.y-(exitCell.y+.5))<.6&&!$('exitModal').classList.contains('open')){$('exitModal').classList.remove('hidden');$('exitModal').classList.add('open');moveVec={x:0,y:0};}if(Date.now()-lastPosWrite>120){lastPosWrite=Date.now();update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{x:+localPos.x.toFixed(3),y:+localPos.y.toFixed(3),avatar:avatarData||null}).catch(()=>{});}}requestAnimationFrame(updateMovement)}requestAnimationFrame(updateMovement);
+const joy=$('joy'),knob=$('joyKnob');function joyMove(e){const r=joy.getBoundingClientRect(),t=e.touches?e.touches[0]:e,x=t.clientX-(r.left+r.width/2),y=t.clientY-(r.top+r.height/2),len=Math.hypot(x,y),max=42,k=Math.min(1,max/(len||1));knob.style.transform=`translate(${x*k}px,${y*k}px)`;moveVec={x:Math.max(-1,Math.min(1,x/max)),y:Math.max(-1,Math.min(1,y/max))};}joy.addEventListener('pointerdown',e=>{joy.setPointerCapture(e.pointerId);joyMove(e)});joy.addEventListener('pointermove',e=>{if(e.buttons)joyMove(e)});function joyEnd(){moveVec={x:0,y:0};knob.style.transform=''}joy.addEventListener('pointerup',joyEnd);joy.addEventListener('pointercancel',joyEnd);
+$('exitCancel').onclick=()=>{$('exitModal').classList.add('hidden');$('exitModal').classList.remove('open')};$('exitSubmit').onclick=async()=>{if($('exitWord').value.trim().toUpperCase()!==levelWord){$('exitError').textContent='Nieprawidłowe słowo.';return}await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{finishedLevel1:true});$('exitModal').classList.add('hidden');$('exitModal').classList.remove('open');$('finishWait').style.display='block';};
+async function ensureAvatar(){if(currentUser.role==='spectator')return;const saved=localStorage.getItem('lamiglowki_avatar_'+auth.currentUser.uid);if(saved){avatarData=saved;return}$('avatarModal').classList.remove('hidden');}
+$('chooseAvatar').onclick=()=>$('avatarFile').click();$('avatarFile').onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{$('avatarPreview').src=rd.result;avatarData=rd.result};rd.readAsDataURL(f)};
+$('takePhoto').onclick=async()=>{try{if(!cameraStream){cameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:false});$('camera').srcObject=cameraStream;$('camera').classList.remove('hidden');$('avatarPreview').classList.add('hidden');$('takePhoto').textContent='Zrób teraz';}else{const v=$('camera'),c=document.createElement('canvas');c.width=160;c.height=160;const q=c.getContext('2d'),side=Math.min(v.videoWidth,v.videoHeight),sx=(v.videoWidth-side)/2,sy=(v.videoHeight-side)/2;q.drawImage(v,sx,sy,side,side,0,0,160,160);avatarData=c.toDataURL('image/jpeg',.72);$('avatarPreview').src=avatarData;$('avatarPreview').classList.remove('hidden');$('camera').classList.add('hidden');cameraStream.getTracks().forEach(t=>t.stop());cameraStream=null;$('takePhoto').textContent='Zrób zdjęcie';}}catch(e){alert('Nie udało się uruchomić aparatu. Możesz wgrać plik.')}};
+$('saveAvatar').onclick=async()=>{if(!avatarData){alert('Najpierw wybierz zdjęcie.');return}localStorage.setItem('lamiglowki_avatar_'+auth.currentUser.uid,avatarData);$('avatarModal').classList.add('hidden');};
 
 function renderLobby(players = {}) {
   const list = $("playerList");
@@ -194,16 +267,7 @@ function listenToLobby(code) {
 
     if (game.status === "started") {
       $("lobbyStatus").textContent = `Kod Gry: ${code} • Gra rozpoczęta`;
-
-      // Generic event for future game logic.
-      // For now it deliberately does nothing by itself.
-      window.dispatchEvent(new CustomEvent("lamiglowki:game-started", {
-        detail: {
-          code,
-          startedAt: game.startedAt || null,
-          game
-        }
-      }));
+      if (!gameStartedHandled) startLevel1(game);
     }
   });
 }
@@ -277,6 +341,7 @@ $("loginForm").addEventListener("submit", async e => {
       }
 
       renderLobby({});
+      ensureAvatar();
       window.scrollTo(0, 0);
     }, 430);
 
@@ -355,7 +420,10 @@ $("startGame").addEventListener("click", async () => {
   try {
     await update(ref(db, `games/${currentGameCode}`), {
       status: "started",
-      startedAt: Date.now()
+      startedAt: Date.now(),
+      level: 1,
+      levelSeed: Math.floor(Math.random() * 2147483647),
+      levelWord: WORDS[Math.floor(Math.random() * WORDS.length)]
     });
   } catch (err) {
     console.error(err);
