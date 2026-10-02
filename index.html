@@ -2597,27 +2597,49 @@ function listenLevelPlayers(code){
     const done=active.filter(p=>p.finishedLevel1).length;
     $("finishCount").textContent=`${done}/${active.length}`;
 
-    if(currentLevel===1 && playerFinished && active.length>0 && done===active.length){
+    if(currentLevel===1 && active.length>0 && done===active.length){
       const text=$("portalWait").querySelector(".portalText");
       if(text) text.textContent="Wszyscy dotarli do drzwi";
-    }
 
-    if(
-      currentLevel===1 &&
-      currentUser?.role==="host" &&
-      active.length>0 &&
-      done===active.length &&
-      !level2TransitionSent
-    ){
-      level2TransitionSent=true;
-      update(ref(db,`games/${currentGameCode}`),{
-        level:2,
-        level2Phase:"gather",
-        level2Seed:Math.floor(Math.random()*2147483647),
-        level2StartedAt:Date.now()
-      }).catch(()=>{
-        level2TransitionSent=false;
-      });
+      if(!level2TransitionSent){
+        level2TransitionSent=true;
+
+        const seed=(
+          (Number(currentGameData?.startedAt||1)%2147483647) +
+          (Number(currentGameCode||0)*1000003)
+        )%2147483647;
+
+        const nextGame={
+          ...(currentGameData||{}),
+          level:2,
+          level2Phase:"gather",
+          level2Seed:seed,
+          level2StartedAt:Date.now()
+        };
+
+        if(currentUser?.role==="host"){
+          update(ref(db,`games/${currentGameCode}`),{
+            level:2,
+            level2Phase:"gather",
+            level2Seed:seed,
+            level2StartedAt:nextGame.level2StartedAt
+          }).then(()=>{
+            currentGameData=nextGame;
+            if(currentLevel===1) startLevel2(nextGame);
+          }).catch(err=>{
+            console.error(err);
+            currentGameData=nextGame;
+            if(currentLevel===1) startLevel2(nextGame);
+          });
+        }else{
+          setTimeout(()=>{
+            if(currentLevel===1){
+              currentGameData=nextGame;
+              startLevel2(nextGame);
+            }
+          },650);
+        }
+      }
     }
   });
 }
