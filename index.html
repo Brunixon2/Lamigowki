@@ -661,6 +661,11 @@ const canvas = $("mazeCanvas");
 const ctx = canvas.getContext("2d", { alpha:false });
 
 const TILE = 64;
+
+// Eksperymentalny efekt "wysokich" ścian.
+// Ustaw false, aby jednym przełącznikiem wrócić do płaskich ścian.
+const RAISED_WALLS = true;
+const WALL_HEIGHT = 16;
 const COLS = 61;
 const ROWS = 37;
 const START_X = 30;
@@ -1065,6 +1070,57 @@ function drawTexture(img,x,y,w,h,fallback){
   }
 }
 
+function drawMazeWall(img,x,y,size,fallback,gridX,gridY){
+  if(!RAISED_WALLS){
+    drawTexture(img,x,y,size+1,size+1,fallback);
+    return;
+  }
+
+  const h=WALL_HEIGHT;
+
+  // Top of the wall is shifted upward, which makes the block look taller.
+  // The collision/grid position itself does not change.
+  const topY=y-h;
+
+  // South vertical face is visible only when there is no wall directly below.
+  const southIsOpen =
+    gridY>=ROWS-1 ||
+    maze?.[gridY+1]?.[gridX]!==1;
+
+  if(southIsOpen){
+    if(img.complete && img.naturalWidth){
+      // Stretch a thin strip of the same cobblestone texture down the wall face.
+      const srcH=Math.max(1,Math.floor(img.naturalHeight*.24));
+      ctx.drawImage(
+        img,
+        0,img.naturalHeight-srcH,img.naturalWidth,srcH,
+        x,y+size-h,size+1,h+1
+      );
+    }else{
+      ctx.fillStyle=fallback;
+      ctx.fillRect(x,y+size-h,size+1,h+1);
+    }
+
+    // Darken the vertical face so it reads as depth, not a second floor tile.
+    ctx.fillStyle="rgba(0,0,0,.34)";
+    ctx.fillRect(x,y+size-h,size+1,h+1);
+
+    // Small contact shadow under the wall.
+    ctx.fillStyle="rgba(0,0,0,.28)";
+    ctx.fillRect(x,y+size-2,size+1,4);
+  }
+
+  // Raised top face.
+  drawTexture(img,x,topY,size+1,size+1,fallback);
+
+  // Edge highlights/shadows give the top face more volume.
+  ctx.fillStyle="rgba(255,255,255,.055)";
+  ctx.fillRect(x,topY,size+1,2);
+  ctx.fillStyle="rgba(0,0,0,.16)";
+  ctx.fillRect(x+size-4,topY,4,size+1);
+  ctx.fillRect(x,topY+size-4,size+1,4);
+}
+
 function getAvatarImage(p){
   if(!p?.avatar) return null;
   const key=(p.uid || p.name || "player")+"|"+p.avatar.length+"|"+p.avatar.slice(-24);
@@ -1391,7 +1447,12 @@ function renderSpectatorFollow(uid){
 
       if(maze[y][x]){
         const moss=((x*37+y*17)%23===0);
-        drawTexture(moss?tex.moss:tex.wall,p.x,p.y,TILE+1,TILE+1,moss?"#43513b":"#555");
+        drawMazeWall(
+          moss?tex.moss:tex.wall,
+          p.x,p.y,TILE,
+          moss?"#43513b":"#555",
+          x,y
+        );
       }else{
         drawTexture(tex.dirt,p.x,p.y,TILE+1,TILE+1,"#503b27");
       }
@@ -1404,6 +1465,17 @@ function renderSpectatorFollow(uid){
 
       ctx.fillStyle=`rgba(255,183,72,${.05+intensity*.18})`;
       ctx.fillRect(p.x,p.y,TILE+1,TILE+1);
+
+      if(maze[y][x] && RAISED_WALLS){
+        const topY=p.y-WALL_HEIGHT;
+        const darkTop=Math.max(0,.78-intensity*.78);
+        if(darkTop>0){
+          ctx.fillStyle=`rgba(0,0,0,${darkTop})`;
+          ctx.fillRect(p.x,topY,TILE+1,TILE+1);
+        }
+        ctx.fillStyle=`rgba(255,183,72,${.05+intensity*.18})`;
+        ctx.fillRect(p.x,topY,TILE+1,TILE+1);
+      }
     }
   }
 
@@ -1546,7 +1618,12 @@ function renderGame(){
 
       if(maze[y][x]){
         const moss=((x*37+y*17)%23===0);
-        drawTexture(moss?tex.moss:tex.wall,p.x,p.y,TILE+1,TILE+1,moss?"#43513b":"#555");
+        drawMazeWall(
+          moss?tex.moss:tex.wall,
+          p.x,p.y,TILE,
+          moss?"#43513b":"#555",
+          x,y
+        );
       }else{
         drawTexture(tex.dirt,p.x,p.y,TILE+1,TILE+1,"#503b27");
       }
@@ -1556,16 +1633,26 @@ function renderGame(){
       if(darkness>0){
         ctx.fillStyle=`rgba(0,0,0,${darkness})`;
         ctx.fillRect(p.x,p.y,TILE+1,TILE+1);
+
+        if(maze[y][x] && RAISED_WALLS){
+          ctx.fillRect(p.x,p.y-WALL_HEIGHT,TILE+1,TILE+1);
+        }
       }
 
       if(!spectatorFree){
         const warm = .05 + intensity*.18;
         ctx.fillStyle=`rgba(255,183,72,${warm})`;
         ctx.fillRect(p.x,p.y,TILE+1,TILE+1);
+
+        if(maze[y][x] && RAISED_WALLS){
+          const topY=p.y-WALL_HEIGHT;
+          ctx.fillStyle=`rgba(255,183,72,${warm})`;
+          ctx.fillRect(p.x,topY,TILE+1,TILE+1);
+        }
       }
 
-      // Slight grid-depth/shadow around wall tiles.
-      if(maze[y][x]){
+      // Flat-wall fallback depth. Raised walls already draw their own face/shadows.
+      if(maze[y][x] && !RAISED_WALLS){
         ctx.fillStyle="rgba(0,0,0,.16)";
         ctx.fillRect(p.x,p.y+TILE-5,TILE,5);
         ctx.fillRect(p.x+TILE-5,p.y,5,TILE);
