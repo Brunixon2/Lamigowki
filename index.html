@@ -1088,6 +1088,24 @@ function drawTexture(img,x,y,w,h,fallback){
   }
 }
 
+function wallLightIntensity(x,y,light){
+  let v=light?.[y]?.[x]||0;
+  const dirs=[[1,0],[-1,0],[0,1],[0,-1]];
+
+  for(const [dx,dy] of dirs){
+    const nx=x+dx;
+    const ny=y+dy;
+
+    if(nx<0||ny<0||nx>=COLS||ny>=ROWS) continue;
+    if(maze?.[ny]?.[nx]!==0) continue;
+
+    const n=light?.[ny]?.[nx]||0;
+    if(n>0) v=Math.max(v,n*.9);
+  }
+
+  return v;
+}
+
 function drawMazeWall(img,x,y,size,fallback,gridX,gridY,intensity){
   if(!RAISED_WALLS){
     drawTexture(img,x,y,size+1,size+1,fallback);
@@ -1550,7 +1568,7 @@ function renderSpectatorFollow(uid){
     for(let x=minX;x<=maxX;x++){
       if(maze[y][x]!==1) continue;
 
-      const intensity=light[y][x]||0;
+      const intensity=wallLightIntensity(x,y,light);
       if(intensity<=0) continue;
 
       const p=tileScreen(x,y,cx,cy);
@@ -1628,7 +1646,7 @@ function renderSpectatorOverview(){
     for(let x=0;x<COLS;x++){
       if(maze[y][x]!==1) continue;
 
-      const intensity=light[y][x]||0;
+      const intensity=wallLightIntensity(x,y,light);
       if(intensity<=0) continue;
 
       const px=ox+x*tile;
@@ -1731,7 +1749,7 @@ function renderGame(){
     for(let x=minX;x<=maxX;x++){
       if(maze[y][x]!==1) continue;
 
-      const intensity=light[y][x]||0;
+      const intensity=wallLightIntensity(x,y,light);
       if(intensity<=0) continue;
 
       const p=tileScreen(x,y,cx,cy);
