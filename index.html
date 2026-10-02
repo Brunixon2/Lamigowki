@@ -434,7 +434,6 @@ let lastPosWrite = 0;
 let gameStartedHandled = false;
 let playerFinished = false;
 
-let foundLetters = new Set();
 let levelWord = "";
 let exitCell = {x:1,y:1};
 let letterCells = [];
@@ -466,7 +465,8 @@ const tex = {};
 for (const [k,u] of Object.entries({
   wall:"assets/cobblestone.png",
   moss:"assets/mossy_cobblestone.png",
-  dirt:"assets/dirt.png"
+  dirt:"assets/dirt.png",
+  paper:"assets/paper.png"
 })) {
   tex[k] = new Image();
   tex[k].src = u;
@@ -898,6 +898,56 @@ function drawEscapePath(cx,cy){
   }
 }
 
+
+function drawLetterNotes(cx,cy,light,spectatorFree){
+  for(let i=0;i<letterCells.length;i++){
+    const c=letterCells[i];
+    const intensity = spectatorFree ? .72 : (light?.[c.y]?.[c.x] || 0);
+
+    // A note is only visible when the tile itself is illuminated.
+    if(intensity<=0) continue;
+
+    const p=tileScreen(c.x,c.y,cx,cy);
+    const w=34;
+    const h=30;
+    const x=p.x+(TILE-w)/2;
+    const y=p.y+(TILE-h)/2;
+
+    ctx.save();
+
+    // Tiny irregular tilt so the notes do not look computer-perfect.
+    const angle=((c.x*13+c.y*7+i*11)%7-3)*0.012;
+    ctx.translate(x+w/2,y+h/2);
+    ctx.rotate(angle);
+
+    if(tex.paper.complete && tex.paper.naturalWidth){
+      ctx.drawImage(tex.paper,-w/2,-h/2,w,h);
+    }else{
+      ctx.fillStyle="#d8c79d";
+      ctx.fillRect(-w/2,-h/2,w,h);
+    }
+
+    // Keep the paper affected by the same warm torch light.
+    ctx.fillStyle=`rgba(255,190,85,${Math.min(.16,.05+intensity*.10)})`;
+    ctx.fillRect(-w/2,-h/2,w,h);
+
+    ctx.textAlign="center";
+    ctx.textBaseline="middle";
+
+    // Position number.
+    ctx.font="900 9px monospace";
+    ctx.fillStyle="#272018";
+    ctx.fillText(String(i+1),0,-8);
+
+    // The actual letter.
+    ctx.font="1000 17px monospace";
+    ctx.fillStyle="#17120e";
+    ctx.fillText(levelWord[i] || "?",0,5);
+
+    ctx.restore();
+  }
+}
+
 function renderGame(){
   requestAnimationFrame(renderGame);
   if(gameScreen.style.display!=="block" || !maze) return;
@@ -982,6 +1032,10 @@ function renderGame(){
     }
   }
 
+  // Physical paper notes: number of the letter position + the letter itself.
+  // Players only read them; nothing is collected or saved.
+  drawLetterNotes(cx,cy,light,spectatorFree);
+
   // Once anybody solves the word, every player gets a block-snapped route to the exit.
   drawEscapePath(cx,cy);
 
@@ -1016,12 +1070,6 @@ const WORDS=[
   "SEKRET","ZAGADKA","LITERA","SŁOWO","ODWAGA","MISJA","CEL","META","START","WYJŚCIE"
 ].map(w=>w.toUpperCase()).filter(w=>w.length<=7);
 
-function setWordProgress(){
-  $("wordProgress").textContent = levelWord
-    .split("")
-    .map((c,i)=>foundLetters.has(i)?c:"_")
-    .join(" ");
-}
 
 function showLetterToast(letter){
   const el=$("letterToast");
@@ -1054,8 +1102,6 @@ async function startLevel1(game){
 
   localPos={x:START_X+.5,y:START_Y+.5};
   spectatorPos={x:START_X+.5,y:START_Y+.5};
-  foundLetters.clear();
-  setWordProgress();
 
   $("finishWait").style.display="none";
   $("exitWord").value="";
@@ -1211,16 +1257,6 @@ function updateMovement(){
     });
   }
 
-  // Hidden letter pickups: the maze never shows where they are.
-  for(let i=0;i<letterCells.length;i++){
-    if(foundLetters.has(i)) continue;
-    const c=letterCells[i];
-    if(Math.hypot(localPos.x-(c.x+.5),localPos.y-(c.y+.5))<.47){
-      foundLetters.add(i);
-      setWordProgress();
-      showLetterToast(levelWord[i]);
-    }
-  }
 
   if(Date.now()-lastPosWrite>110){
     lastPosWrite=Date.now();
