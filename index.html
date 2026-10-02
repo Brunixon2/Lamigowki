@@ -734,7 +734,7 @@ const L2_ENTRY_BRIDGE_X = 5;
 const L2_ENTRY_BRIDGE_W = 6;
 const L2_EXIT_BRIDGE_X = 23;
 const L2_EXIT_BRIDGE_W = 6;
-const L2_CHALLENGE_MS = 24000;
+const L2_CHALLENGE_MS = 34000;
 
 let maze = null;
 let localPos = {x:START_X+.5,y:START_Y+.5};
@@ -873,7 +873,7 @@ for (const [k,u] of Object.entries({
   paper:"assets/paper.png",
   doorLocked:"assets/door_with_a_lock.png",
   doorUnlocked:"assets/door_unlocked.png",
-  water:"assets/water.png",
+  water:"assets/water_still.png",
   oak:"assets/oak_plank.png",
   spruce:"assets/spruce_plank.png",
   door:"assets/door.png"
@@ -1786,16 +1786,37 @@ function l2InsideRightGround(x,y){
 
 function buildLevel2Schedule(seed){
   const rnd=seededRandom(seed);
-  level2ProtectedRow=L2_PLATFORM_Y+Math.floor(rnd()*L2_PLATFORM_H);
+  level2ProtectedRow=L2_BRIDGE_Y+(rnd()<.5?0:1);
   level2Schedule=new Map();
+
+  const candidates=[];
 
   for(let y=L2_PLATFORM_Y;y<L2_PLATFORM_Y+L2_PLATFORM_H;y++){
     for(let x=L2_PLATFORM_X;x<L2_PLATFORM_X+L2_PLATFORM_W;x++){
       if(y===level2ProtectedRow) continue;
-      const warningAt=2600+rnd()*17200;
-      const fallAt=warningAt+1250+rnd()*450;
-      level2Schedule.set(x+","+y,{warningAt,fallAt});
+      candidates.push({x,y});
     }
+  }
+
+  for(let i=candidates.length-1;i>0;i--){
+    const j=Math.floor(rnd()*(i+1));
+    const tmp=candidates[i];
+    candidates[i]=candidates[j];
+    candidates[j]=tmp;
+  }
+
+  const count=Math.min(14,candidates.length);
+  let fallAt=3800;
+
+  for(let i=0;i<count;i++){
+    fallAt+=1400+rnd()*700;
+    const warningDuration=1150;
+    const c=candidates[i];
+
+    level2Schedule.set(c.x+","+c.y,{
+      warningAt:fallAt-warningDuration,
+      fallAt
+    });
   }
 }
 
@@ -1821,6 +1842,12 @@ function level2ExitBridgeReady(now=Date.now()){
 
 function level2CellSolid(tx,ty,now=Date.now()){
   if(tx<0||ty<0||tx>=L2_COLS||ty>=L2_ROWS) return false;
+
+  const doorWall=
+    ((tx===1 || tx===L2_COLS-3) && ty>=6 && ty<=8);
+
+  if(doorWall) return false;
+
   if(l2InsideLeftGround(tx,ty) || l2InsideRightGround(tx,ty)) return true;
 
   if(l2InsideEntryBridge(tx,ty)){
@@ -1873,8 +1900,14 @@ function drawAnimatedWater(x,y,size,now){
   ctx.drawImage(img,sx,sy,frameSize,frameSize,x,y,size+1,size+1);
 }
 
-function drawRaisedLevel2Tile(img,x,y,size,height,fallback,tint=null,offset=0,alpha=1){
+function drawRaisedLevel2Tile(img,x,y,size,height,fallback,tint=null,offset=0,alpha=1,intensity=1){
   const topY=y-height+offset;
+
+  if(intensity<=0){
+    ctx.fillStyle="#000";
+    ctx.fillRect(x,topY,size+1,size+height+2);
+    return;
+  }
 
   ctx.save();
   ctx.globalAlpha=alpha;
@@ -1898,6 +1931,16 @@ function drawRaisedLevel2Tile(img,x,y,size,height,fallback,tint=null,offset=0,al
     ctx.fillRect(x,topY,size+1,size+1);
   }
 
+  const darkness=Math.max(0,.78-intensity*.78);
+
+  if(darkness>0){
+    ctx.fillStyle=`rgba(0,0,0,${darkness})`;
+    ctx.fillRect(x,topY,size+1,size+height+2);
+  }
+
+  ctx.fillStyle=`rgba(255,183,72,${.04+intensity*.16})`;
+  ctx.fillRect(x,topY,size+1,size+height+2);
+
   ctx.fillStyle="rgba(255,255,255,.08)";
   ctx.fillRect(x,topY,size+1,2);
   ctx.fillStyle="rgba(0,0,0,.20)";
@@ -1919,27 +1962,117 @@ function level2DoorRect(side,tile,ox,oy){
   };
 }
 
-function drawLevel2Door(side,tile,ox,oy){
+function drawLevel2Door(side,tile,ox,oy,intensity=1){
+  if(intensity<=0) return;
+
   const r=level2DoorRect(side,tile,ox,oy);
+
   if(tex.door.complete && tex.door.naturalWidth){
     ctx.drawImage(tex.door,r.x,r.y,r.w,r.h);
   }else{
     ctx.fillStyle="#76502f";
     ctx.fillRect(r.x,r.y,r.w,r.h);
   }
+
+  const darkness=Math.max(0,.78-intensity*.78);
+
+  if(darkness>0){
+    ctx.fillStyle=`rgba(0,0,0,${darkness})`;
+    ctx.fillRect(r.x,r.y,r.w,r.h);
+  }
+
+  ctx.fillStyle=`rgba(255,183,72,${.04+intensity*.16})`;
+  ctx.fillRect(r.x,r.y,r.w,r.h);
+}
+
+function collectLevel2TorchSources(){
+  const sources=[];
+
+  if(currentUser?.role!=="spectator" && !level2Drowning){
+    sources.push({x:localPos.x,y:localPos.y});
+  }
+
+  for(const [uid,p] of Object.entries(remotePlayers)){
+    if(p.spectator || p.level!==2 || p.x==null || p.y==null) continue;
+    if(uid===auth.currentUser?.uid && currentUser?.role!=="spectator") continue;
+    sources.push({x:+p.x,y:+p.y});
+  }
+
+  return sources;
+}
+
+function buildLevel2LightMap(){
+  const light=Array.from({length:L2_ROWS},()=>Array(L2_COLS).fill(0));
+  const sources=collectLevel2TorchSources();
+
+  for(const s of sources){
+    const sx=Math.floor(s.x);
+    const sy=Math.floor(s.y);
+
+    for(let y=Math.max(0,sy-LIGHT_RADIUS);y<=Math.min(L2_ROWS-1,sy+LIGHT_RADIUS);y++){
+      for(let x=Math.max(0,sx-LIGHT_RADIUS);x<=Math.min(L2_COLS-1,sx+LIGHT_RADIUS);x++){
+        const d=Math.abs(x-sx)+Math.abs(y-sy);
+        if(d>LIGHT_RADIUS) continue;
+
+        const strength=Math.max(.12,1-d/(LIGHT_RADIUS+1));
+        light[y][x]=Math.max(light[y][x],strength);
+      }
+    }
+  }
+
+  return light;
+}
+
+function level2WallLightIntensity(x,y,light){
+  let v=light?.[y]?.[x]||0;
+
+  for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){
+    const nx=x+dx;
+    const ny=y+dy;
+
+    if(nx<0||ny<0||nx>=L2_COLS||ny>=L2_ROWS) continue;
+    v=Math.max(v,(light?.[ny]?.[nx]||0)*.9);
+  }
+
+  return v;
+}
+
+function drawLevel2WaterTile(x,y,size,now,intensity){
+  if(intensity<=0){
+    ctx.fillStyle="#000";
+    ctx.fillRect(x,y,size+1,size+1);
+    return;
+  }
+
+  drawAnimatedWater(x,y,size,now);
+
+  const darkness=Math.max(0,.78-intensity*.78);
+
+  if(darkness>0){
+    ctx.fillStyle=`rgba(0,0,0,${darkness})`;
+    ctx.fillRect(x,y,size+1,size+1);
+  }
+
+  ctx.fillStyle=`rgba(255,183,72,${.035+intensity*.12})`;
+  ctx.fillRect(x,y,size+1,size+1);
 }
 
 function drawLevel2Scene(tile,ox,oy,overview=false){
   const now=Date.now();
+  const light=buildLevel2LightMap();
 
   ctx.fillStyle="#000";
   ctx.fillRect(0,0,innerWidth,innerHeight);
 
   for(let y=1;y<L2_ROWS-1;y++){
     for(let x=5;x<L2_RIGHT_GROUND_START;x++){
-      drawAnimatedWater(ox+x*tile,oy+y*tile,tile,now);
-      ctx.fillStyle="rgba(0,55,74,.10)";
-      ctx.fillRect(ox+x*tile,oy+y*tile,tile+1,tile+1);
+      drawLevel2WaterTile(
+        ox+x*tile,
+        oy+y*tile,
+        tile,
+        now,
+        light?.[y]?.[x]||0
+      );
     }
   }
 
@@ -1947,31 +2080,85 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
     for(let x=1;x<=L2_LEFT_GROUND_END;x++){
       const px=ox+x*tile;
       const py=oy+y*tile;
+      const intensity=x===L2_LEFT_GROUND_END
+        ? level2WallLightIntensity(x,y,light)
+        : (light?.[y]?.[x]||0);
+
       if(x===L2_LEFT_GROUND_END){
-        drawRaisedLevel2Tile(tex.wall,px,py,tile,tile*.26,"#555");
+        drawRaisedLevel2Tile(tex.wall,px,py,tile,tile*.26,"#555",null,0,1,intensity);
       }else{
-        drawRaisedLevel2Tile(tex.dirt,px,py,tile,tile*.26,"#503b27");
+        drawRaisedLevel2Tile(tex.dirt,px,py,tile,tile*.26,"#503b27",null,0,1,intensity);
       }
     }
 
     for(let x=L2_RIGHT_GROUND_START;x<L2_COLS-1;x++){
       const px=ox+x*tile;
       const py=oy+y*tile;
+      const intensity=x===L2_RIGHT_GROUND_START
+        ? level2WallLightIntensity(x,y,light)
+        : (light?.[y]?.[x]||0);
+
       if(x===L2_RIGHT_GROUND_START){
-        drawRaisedLevel2Tile(tex.wall,px,py,tile,tile*.26,"#555");
+        drawRaisedLevel2Tile(tex.wall,px,py,tile,tile*.26,"#555",null,0,1,intensity);
       }else{
-        drawRaisedLevel2Tile(tex.dirt,px,py,tile,tile*.26,"#503b27");
+        drawRaisedLevel2Tile(tex.dirt,px,py,tile,tile*.26,"#503b27",null,0,1,intensity);
       }
     }
   }
 
   for(let x=0;x<L2_COLS;x++){
-    drawRaisedLevel2Tile(tex.wall,ox+x*tile,oy,tile,tile*.30,"#555");
-    drawRaisedLevel2Tile(tex.wall,ox+x*tile,oy+(L2_ROWS-1)*tile,tile,tile*.30,"#555");
+    drawRaisedLevel2Tile(
+      tex.wall,
+      ox+x*tile,
+      oy,
+      tile,
+      tile*.30,
+      "#555",
+      null,
+      0,
+      1,
+      level2WallLightIntensity(x,0,light)
+    );
+
+    drawRaisedLevel2Tile(
+      tex.wall,
+      ox+x*tile,
+      oy+(L2_ROWS-1)*tile,
+      tile,
+      tile*.30,
+      "#555",
+      null,
+      0,
+      1,
+      level2WallLightIntensity(x,L2_ROWS-1,light)
+    );
   }
 
-  drawRaisedLevel2Tile(tex.wall,ox,oy+8*tile,tile,tile*.30,"#555");
-  drawRaisedLevel2Tile(tex.wall,ox+(L2_COLS-1)*tile,oy+8*tile,tile,tile*.30,"#555");
+  drawRaisedLevel2Tile(
+    tex.wall,
+    ox,
+    oy+8*tile,
+    tile,
+    tile*.30,
+    "#555",
+    null,
+    0,
+    1,
+    level2WallLightIntensity(0,8,light)
+  );
+
+  drawRaisedLevel2Tile(
+    tex.wall,
+    ox+(L2_COLS-1)*tile,
+    oy+8*tile,
+    tile,
+    tile*.30,
+    "#555",
+    null,
+    0,
+    1,
+    level2WallLightIntensity(L2_COLS-1,8,light)
+  );
 
   let entryOffset=0;
   let entryAlpha=1;
@@ -1994,7 +2181,8 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
           "#5b351f",
           null,
           entryOffset,
-          entryAlpha
+          entryAlpha,
+          light?.[y]?.[x]||0
         );
       }
     }
@@ -2010,9 +2198,8 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
       let alpha=1;
 
       if(state==="warning"){
-        const timing=level2Schedule.get(x+","+y);
         const elapsed=now-level2ChallengeAt;
-        const pulse=.26+.22*(.5+.5*Math.sin(elapsed/95));
+        const pulse=.28+.24*(.5+.5*Math.sin(elapsed/95));
         tint=`rgba(220,25,25,${pulse})`;
       }
 
@@ -2032,7 +2219,8 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
         "#8a5a2b",
         tint,
         offset,
-        alpha
+        alpha,
+        light?.[y]?.[x]||0
       );
     }
   }
@@ -2053,14 +2241,58 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
           "#5b351f",
           null,
           offset,
-          alpha
+          alpha,
+          light?.[y]?.[x]||0
         );
       }
     }
   }
 
-  drawLevel2Door("left",tile,ox,oy);
-  drawLevel2Door("right",tile,ox,oy);
+  for(let y=6;y<=8;y++){
+    drawRaisedLevel2Tile(
+      tex.wall,
+      ox+1*tile,
+      oy+y*tile,
+      tile,
+      tile*.30,
+      "#555",
+      null,
+      0,
+      1,
+      level2WallLightIntensity(1,y,light)
+    );
+
+    drawRaisedLevel2Tile(
+      tex.wall,
+      ox+(L2_COLS-3)*tile,
+      oy+y*tile,
+      tile,
+      tile*.30,
+      "#555",
+      null,
+      0,
+      1,
+      level2WallLightIntensity(L2_COLS-3,y,light)
+    );
+  }
+
+  const leftDoorLight=Math.max(
+    light?.[7]?.[1]||0,
+    light?.[8]?.[1]||0,
+    light?.[7]?.[2]||0,
+    light?.[8]?.[2]||0
+  );
+
+  const rightDoorX=L2_COLS-3;
+  const rightDoorLight=Math.max(
+    light?.[7]?.[rightDoorX]||0,
+    light?.[8]?.[rightDoorX]||0,
+    light?.[7]?.[rightDoorX-1]||0,
+    light?.[8]?.[rightDoorX-1]||0
+  );
+
+  drawLevel2Door("left",tile,ox,oy,leftDoorLight);
+  drawLevel2Door("right",tile,ox,oy,rightDoorLight);
 
   const players=Object.values(remotePlayers).filter(p=>
     !p.spectator && p.level===2 && p.x!=null && p.y!=null
@@ -2068,6 +2300,7 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
 
   if(currentUser?.role!=="spectator"){
     const mine=players.find(p=>p.uid===auth.currentUser?.uid);
+
     if(!mine){
       players.push({
         uid:auth.currentUser?.uid,
@@ -2082,6 +2315,11 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
   }
 
   for(const p of players){
+    const tx=Math.floor(+p.x);
+    const ty=Math.floor(+p.y);
+
+    if((light?.[ty]?.[tx]||0)<=0) continue;
+
     const sx=ox+(+p.x)*tile;
     const sy=oy+(+p.y)*tile-tile*.16;
 
@@ -2118,6 +2356,12 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
       }else{
         ctx.fillStyle=p.host ? "#d6b25e" : "#b8b8bd";
         ctx.fillRect(sx-r,sy-r,r*2,r*2);
+
+        ctx.font="900 14px monospace";
+        ctx.textAlign="center";
+        ctx.textBaseline="middle";
+        ctx.fillStyle="#18181b";
+        ctx.fillText((p.name||"?").trim().charAt(0).toUpperCase(),sx,sy+1);
       }
 
       ctx.restore();
@@ -2732,14 +2976,14 @@ function snappedHalf(v){
 }
 
 function tryCreateGridTarget(mv){
-  if(moveTarget || Date.now()-lastGridStepAt < GRID_STEP_DELAY) return;
+  if(Date.now()-lastGridStepAt < GRID_STEP_DELAY) return false;
 
   const ax=Math.abs(mv.x);
   const ay=Math.abs(mv.y);
-  if(ax<.22 && ay<.22) return;
+  if(ax<.22 && ay<.22) return false;
 
-  let dx=0,dy=0;
-
+  let dx=0;
+  let dy=0;
 
   if(ax>=ay){
     dx=Math.sign(mv.x)*GRID_STEP;
@@ -2752,10 +2996,14 @@ function tryCreateGridTarget(mv){
   const tx=snappedHalf(baseX+dx);
   const ty=snappedHalf(baseY+dy);
 
-  if(canMove(tx,ty)){
-    moveTarget={x:tx,y:ty};
-    lastGridStepAt=Date.now();
-  }
+  lastGridStepAt=Date.now();
+
+  if(!canMove(tx,ty)) return false;
+
+  localPos.x=tx;
+  localPos.y=ty;
+  moveTarget=null;
+  return true;
 }
 
 function updateMovement(){
@@ -2768,21 +3016,6 @@ function updateMovement(){
   if(playerFinished || level2Drowning) return;
 
   tryCreateGridTarget(mv);
-
-  if(moveTarget){
-    const dx=moveTarget.x-localPos.x;
-    const dy=moveTarget.y-localPos.y;
-    const dist=Math.hypot(dx,dy);
-
-    if(dist<=GRID_MOVE_SPEED){
-      localPos.x=moveTarget.x;
-      localPos.y=moveTarget.y;
-      moveTarget=null;
-    }else{
-      localPos.x+=dx/dist*GRID_MOVE_SPEED;
-      localPos.y+=dy/dist*GRID_MOVE_SPEED;
-    }
-  }
 
   if(currentLevel===2){
     const tx=Math.floor(localPos.x);
