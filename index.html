@@ -43,7 +43,7 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
 .dot{width:8px;height:8px;border-radius:2px;background:#71717a;flex:none}
 .note{color:#8b8b93;font-size:12px;line-height:1.4;margin-top:10px}
 
-/* Level 1 */
+
 #gameScreen{
   display:none;
   position:fixed;
@@ -468,10 +468,6 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
 }
 
 
-
-
-
-
 </style>
 </head>
 <body>
@@ -537,11 +533,6 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
     </div>
   </div>
 </section>
-
-
-
-
-
 
 
 <audio id="ambientAudio" src="assets/ambient.mp3" loop preload="auto"></audio>
@@ -625,8 +616,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getDatabase(app);
 
-// Keep authentication separate for each tab/window.
-// This makes testing multiple accounts in one browser possible.
+
 const authPersistenceReady = setPersistence(auth, browserSessionPersistence);
 
 let currentUser = null;
@@ -643,14 +633,11 @@ loginInput.maxLength = 32;
 loginInput.removeAttribute("minlength");
 
 
-// Login is converted locally to a technical Firebase email.
-// No names, PINs or roles are stored in this public HTML.
 function authEmail(login) {
   return login.toLowerCase().replace(/[^a-z0-9]/g, "") + "@lamiglowki.invalid";
 }
 
-// Firebase Email/Password requires a longer password than a 4-digit PIN.
-// The player still types only the PIN shown on the card.
+
 function authPassword(pin) {
   return "LG-" + pin + "-26";
 }
@@ -662,10 +649,10 @@ const ctx = canvas.getContext("2d", { alpha:false });
 
 const TILE = 64;
 
-// Eksperymentalny efekt "wysokich" ścian.
-// Ustaw false, aby jednym przełącznikiem wrócić do płaskich ścian.
+
 const RAISED_WALLS = true;
-const WALL_HEIGHT = 16;
+const WALL_HEIGHT = 28;
+const WALL_DEPTH_X = 10;
 const COLS = 61;
 const ROWS = 37;
 const START_X = 30;
@@ -779,7 +766,7 @@ function tryStartAmbient(){
   ambientAudio.play().catch(()=>{});
 }
 
-// If autoplay is blocked on a client, the first touch/joystick interaction starts it.
+
 document.addEventListener("pointerdown", tryStartAmbient, {passive:true});
 
 const tex = {};
@@ -803,16 +790,16 @@ function seededRandom(seed){
 function generateMaze(seed){
   const rnd = seededRandom(seed);
 
-  // Real tile grid: 1 = wall, 0 = walkable.
-  // A logical maze cell becomes a 3x3 walkable area.
-  // Neighboring logical cells are separated by a 1-block wall,
-  // and the connector cut through that wall is also 3 blocks wide.
+
+  
+
+  
   const g = Array.from({length:ROWS},()=>Array(COLS).fill(1));
 
   const LOGICAL_COLS = 15;
   const LOGICAL_ROWS = 9;
   const CELL = 3;
-  const STEP = 4; // 3 floor blocks + 1 separating wall
+  const STEP = 4; 
   const OFFSET_X = 1;
   const OFFSET_Y = 1;
 
@@ -838,14 +825,14 @@ function generateMaze(seed){
     const y2 = OFFSET_Y + by*STEP;
 
     if(bx > ax){
-      // Open the 1-block wall between cells, 3 blocks high.
+
       const wx = x1 + CELL;
       for(let i=0;i<CELL;i++) g[y1+i][wx] = 0;
     }else if(bx < ax){
       const wx = x2 + CELL;
       for(let i=0;i<CELL;i++) g[y2+i][wx] = 0;
     }else if(by > ay){
-      // Open the 1-block wall between cells, 3 blocks wide.
+
       const wy = y1 + CELL;
       for(let i=0;i<CELL;i++) g[wy][x1+i] = 0;
     }else if(by < ay){
@@ -854,7 +841,7 @@ function generateMaze(seed){
     }
   }
 
-  // Perfect maze on the logical grid.
+
   const startLX = Math.floor(LOGICAL_COLS/2);
   const startLY = Math.floor(LOGICAL_ROWS/2);
   const stack = [[startLX,startLY]];
@@ -886,7 +873,7 @@ function generateMaze(seed){
     stack.push([nx,ny]);
   }
 
-  // Central spawn room: exactly 8x8 blocks.
+
   const ROOM_W = 8;
   const ROOM_H = 8;
   const roomLeft = Math.floor(COLS/2 - ROOM_W/2);
@@ -898,12 +885,12 @@ function generateMaze(seed){
     }
   }
 
-  // Guarantee 3-block-wide exits from the 8x8 center room
-  // in all four directions until they touch the generated maze.
+
+  
   const roomMidX = roomLeft + Math.floor(ROOM_W/2);
   const roomMidY = roomTop + Math.floor(ROOM_H/2);
 
-  // North / south corridors: 3 blocks wide.
+
   for(let y=roomTop-1; y>=1; y--){
     for(let x=roomMidX-1; x<=roomMidX+1; x++) g[y][x]=0;
     if(
@@ -920,7 +907,7 @@ function generateMaze(seed){
     ) break;
   }
 
-  // West / east corridors: 3 blocks wide.
+
   for(let x=roomLeft-1; x>=1; x--){
     for(let y=roomMidY-1; y<=roomMidY+1; y++) g[y][x]=0;
     if(
@@ -937,7 +924,7 @@ function generateMaze(seed){
     ) break;
   }
 
-  // Pick an exit far from the middle, near the outside of the maze.
+
   const edgeCandidates = [];
   for(let y=1;y<ROWS-1;y++){
     for(let x=1;x<COLS-1;x++){
@@ -969,7 +956,7 @@ function pickLetterCells(rnd,count){
       const fromStart=Math.abs(x-START_X)+Math.abs(y-START_Y);
       const fromExit=Math.abs(x-exitCell.x)+Math.abs(y-exitCell.y);
 
-      // Keep notes away from the spawn room and the exit itself.
+
       if(fromStart<8 || fromExit<5) continue;
 
       candidates.push({
@@ -980,7 +967,7 @@ function pickLetterCells(rnd,count){
     }
   }
 
-  // Randomize candidates first, then prefer places farther from spawn.
+
   for(let i=candidates.length-1;i>0;i--){
     const j=Math.floor(rnd()*(i+1));
     [candidates[i],candidates[j]]=[candidates[j],candidates[i]];
@@ -989,8 +976,8 @@ function pickLetterCells(rnd,count){
 
   const picked=[];
 
-  // Notes must be clearly separated visually.
-  // 8 blocks means two notes cannot appear in the same small corridor area.
+
+  
   const MIN_DISTANCE=8;
 
   for(const c of candidates){
@@ -1006,8 +993,8 @@ function pickLetterCells(rnd,count){
     }
   }
 
-  // Very rare fallback for difficult generations:
-  // still keep at least 6 blocks between notes instead of placing them together.
+
+  
   if(picked.length<count){
     const FALLBACK_DISTANCE=6;
 
@@ -1025,7 +1012,7 @@ function pickLetterCells(rnd,count){
     }
   }
 
-  // Shuffle assignment, so letter 1, 2, 3... are not arranged spatially.
+
   for(let i=picked.length-1;i>0;i--){
     const j=Math.floor(rnd()*(i+1));
     [picked[i],picked[j]]=[picked[j],picked[i]];
@@ -1055,7 +1042,7 @@ function canMove(x,y){
     const ty=Math.floor(py);
     if(maze?.[ty]?.[tx]!==0) return false;
 
-    // Before anybody solves the word, the exit tile acts like a locked door.
+
     if(!escapePathRevealed && tx===exitCell.x && ty===exitCell.y) return false;
     return true;
   });
@@ -1070,55 +1057,138 @@ function drawTexture(img,x,y,w,h,fallback){
   }
 }
 
-function drawMazeWall(img,x,y,size,fallback,gridX,gridY){
+function drawMazeWall(img,x,y,size,fallback,gridX,gridY,intensity){
   if(!RAISED_WALLS){
     drawTexture(img,x,y,size+1,size+1,fallback);
+    const darkness=Math.max(0,.78-intensity*.78);
+    if(darkness>0){
+      ctx.fillStyle=`rgba(0,0,0,${darkness})`;
+      ctx.fillRect(x,y,size+1,size+1);
+    }
+    ctx.fillStyle=`rgba(255,183,72,${.05+intensity*.18})`;
+    ctx.fillRect(x,y,size+1,size+1);
     return;
   }
 
   const h=WALL_HEIGHT;
+  const dx=WALL_DEPTH_X;
+  const tx=x-dx;
+  const ty=y-h;
+  const southOpen=gridY>=ROWS-1 || maze?.[gridY+1]?.[gridX]!==1;
+  const eastOpen=gridX>=COLS-1 || maze?.[gridY]?.[gridX+1]!==1;
+  const darkness=Math.max(0,.78-intensity*.78);
+  const warm=.05+intensity*.18;
 
-  // Top of the wall is shifted upward, which makes the block look taller.
-  // The collision/grid position itself does not change.
-  const topY=y-h;
+  if(southOpen){
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(tx,ty+size);
+    ctx.lineTo(tx+size,ty+size);
+    ctx.lineTo(x+size,y+size);
+    ctx.lineTo(x,y+size);
+    ctx.closePath();
+    ctx.clip();
 
-  // South vertical face is visible only when there is no wall directly below.
-  const southIsOpen =
-    gridY>=ROWS-1 ||
-    maze?.[gridY+1]?.[gridX]!==1;
-
-  if(southIsOpen){
     if(img.complete && img.naturalWidth){
-      // Stretch a thin strip of the same cobblestone texture down the wall face.
-      const srcH=Math.max(1,Math.floor(img.naturalHeight*.24));
-      ctx.drawImage(
-        img,
-        0,img.naturalHeight-srcH,img.naturalWidth,srcH,
-        x,y+size-h,size+1,h+1
-      );
+      ctx.translate(tx,ty+size);
+      ctx.transform(1,0,dx/h,1,0,0);
+      ctx.drawImage(img,0,0,img.naturalWidth,img.naturalHeight,0,0,size,h);
     }else{
       ctx.fillStyle=fallback;
-      ctx.fillRect(x,y+size-h,size+1,h+1);
+      ctx.fillRect(tx,ty+size,size+dx,h);
     }
 
-    // Darken the vertical face so it reads as depth, not a second floor tile.
-    ctx.fillStyle="rgba(0,0,0,.34)";
-    ctx.fillRect(x,y+size-h,size+1,h+1);
+    ctx.restore();
 
-    // Small contact shadow under the wall.
-    ctx.fillStyle="rgba(0,0,0,.28)";
-    ctx.fillRect(x,y+size-2,size+1,4);
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(tx,ty+size);
+    ctx.lineTo(tx+size,ty+size);
+    ctx.lineTo(x+size,y+size);
+    ctx.lineTo(x,y+size);
+    ctx.closePath();
+    ctx.fillStyle=`rgba(0,0,0,${Math.min(.72,.34+darkness*.7)})`;
+    ctx.fill();
+    ctx.fillStyle=`rgba(255,168,55,${warm*.42})`;
+    ctx.fill();
+    ctx.strokeStyle="rgba(0,0,0,.55)";
+    ctx.lineWidth=1.5;
+    ctx.stroke();
+    ctx.restore();
   }
 
-  // Raised top face.
-  drawTexture(img,x,topY,size+1,size+1,fallback);
+  if(eastOpen){
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(tx+size,ty);
+    ctx.lineTo(tx+size,ty+size);
+    ctx.lineTo(x+size,y+size);
+    ctx.lineTo(x+size,y);
+    ctx.closePath();
+    ctx.clip();
 
-  // Edge highlights/shadows give the top face more volume.
-  ctx.fillStyle="rgba(255,255,255,.055)";
-  ctx.fillRect(x,topY,size+1,2);
-  ctx.fillStyle="rgba(0,0,0,.16)";
-  ctx.fillRect(x+size-4,topY,4,size+1);
-  ctx.fillRect(x,topY+size-4,size+1,4);
+    if(img.complete && img.naturalWidth){
+      ctx.translate(tx+size,ty);
+      ctx.transform(dx/h,1,0,1,0,0);
+      ctx.drawImage(img,0,0,img.naturalWidth,img.naturalHeight,0,0,h,size);
+    }else{
+      ctx.fillStyle=fallback;
+      ctx.fillRect(tx+size,ty,h,size);
+    }
+
+    ctx.restore();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(tx+size,ty);
+    ctx.lineTo(tx+size,ty+size);
+    ctx.lineTo(x+size,y+size);
+    ctx.lineTo(x+size,y);
+    ctx.closePath();
+    ctx.fillStyle=`rgba(0,0,0,${Math.min(.8,.46+darkness*.72)})`;
+    ctx.fill();
+    ctx.fillStyle=`rgba(255,154,45,${warm*.27})`;
+    ctx.fill();
+    ctx.strokeStyle="rgba(0,0,0,.62)";
+    ctx.lineWidth=1.5;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  if(southOpen){
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x,y+size);
+    ctx.lineTo(x+size,y+size);
+    ctx.lineTo(x+size+5,y+size+5);
+    ctx.lineTo(x+5,y+size+5);
+    ctx.closePath();
+    ctx.fillStyle="rgba(0,0,0,.30)";
+    ctx.fill();
+    ctx.restore();
+  }
+
+  drawTexture(img,tx,ty,size+1,size+1,fallback);
+
+  if(darkness>0){
+    ctx.fillStyle=`rgba(0,0,0,${darkness})`;
+    ctx.fillRect(tx,ty,size+1,size+1);
+  }
+
+  ctx.fillStyle=`rgba(255,183,72,${warm})`;
+  ctx.fillRect(tx,ty,size+1,size+1);
+
+  ctx.fillStyle="rgba(255,255,255,.10)";
+  ctx.fillRect(tx,ty,size+1,2);
+  ctx.fillRect(tx,ty,2,size+1);
+
+  ctx.fillStyle="rgba(0,0,0,.23)";
+  ctx.fillRect(tx+size-4,ty,4,size+1);
+  ctx.fillRect(tx,ty+size-4,size+1,4);
+
+  ctx.strokeStyle="rgba(0,0,0,.34)";
+  ctx.lineWidth=1;
+  ctx.strokeRect(tx+.5,ty+.5,size,size);
 }
 
 function getAvatarImage(p){
@@ -1212,7 +1282,7 @@ function buildLightMap(){
       const strength=Math.max(.12,1-d/(LIGHT_RADIUS+1));
       light[y][x]=Math.max(light[y][x],strength);
 
-      // Light catches the stone blocks bordering an illuminated corridor.
+
       for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){
         const nx=x+dx, ny=y+dy;
         if(nx<0||ny<0||nx>=COLS||ny>=ROWS) continue;
@@ -1306,7 +1376,7 @@ function drawEscapePath(cx,cy){
     const c=currentEscapePath[i];
     const p=tileScreen(c.x,c.y,cx,cy);
 
-    // The route is snapped to floor blocks, not a freeform glowing curve.
+
     ctx.fillStyle="rgba(255,190,72,.22)";
     ctx.fillRect(p.x+7,p.y+7,TILE-14,TILE-14);
 
@@ -1323,7 +1393,7 @@ function drawLetterNotes(cx,cy,light,spectatorFree){
     const c=letterCells[i];
     const intensity = spectatorFree ? .72 : (light?.[c.y]?.[c.x] || 0);
 
-    // A note is only visible when the tile itself is illuminated.
+
     if(intensity<=0) continue;
 
     const p=tileScreen(c.x,c.y,cx,cy);
@@ -1334,7 +1404,7 @@ function drawLetterNotes(cx,cy,light,spectatorFree){
 
     ctx.save();
 
-    // Tiny irregular tilt so the notes do not look computer-perfect.
+
     const angle=((c.x*13+c.y*7+i*11)%7-3)*0.012;
     ctx.translate(x+w/2,y+h/2);
     ctx.rotate(angle);
@@ -1346,19 +1416,19 @@ function drawLetterNotes(cx,cy,light,spectatorFree){
       ctx.fillRect(-w/2,-h/2,w,h);
     }
 
-    // Keep the paper affected by the same warm torch light.
+
     ctx.fillStyle=`rgba(255,190,85,${Math.min(.16,.05+intensity*.10)})`;
     ctx.fillRect(-w/2,-h/2,w,h);
 
     ctx.textAlign="center";
     ctx.textBaseline="middle";
 
-    // Position number.
+
     ctx.font="900 9px monospace";
     ctx.fillStyle="#272018";
     ctx.fillText(String(i+1),0,-8);
 
-    // The actual letter.
+
     ctx.font="1000 17px monospace";
     ctx.fillStyle="#17120e";
     ctx.fillText(levelWord[i] || "?",0,5);
@@ -1366,7 +1436,6 @@ function drawLetterNotes(cx,cy,light,spectatorFree){
     ctx.restore();
   }
 }
-
 
 
 function drawSpectatorPlayer(p,sx,sy,r,nameSize=11){
@@ -1451,35 +1520,22 @@ function renderSpectatorFollow(uid){
           moss?tex.moss:tex.wall,
           p.x,p.y,TILE,
           moss?"#43513b":"#555",
-          x,y
+          x,y,intensity
         );
       }else{
         drawTexture(tex.dirt,p.x,p.y,TILE+1,TILE+1,"#503b27");
-      }
-
-      const darkness=Math.max(0,.78-intensity*.78);
-      if(darkness>0){
-        ctx.fillStyle=`rgba(0,0,0,${darkness})`;
-        ctx.fillRect(p.x,p.y,TILE+1,TILE+1);
-      }
-
-      ctx.fillStyle=`rgba(255,183,72,${.05+intensity*.18})`;
-      ctx.fillRect(p.x,p.y,TILE+1,TILE+1);
-
-      if(maze[y][x] && RAISED_WALLS){
-        const topY=p.y-WALL_HEIGHT;
-        const darkTop=Math.max(0,.78-intensity*.78);
-        if(darkTop>0){
-          ctx.fillStyle=`rgba(0,0,0,${darkTop})`;
-          ctx.fillRect(p.x,topY,TILE+1,TILE+1);
+        const darkness=Math.max(0,.78-intensity*.78);
+        if(darkness>0){
+          ctx.fillStyle=`rgba(0,0,0,${darkness})`;
+          ctx.fillRect(p.x,p.y,TILE+1,TILE+1);
         }
         ctx.fillStyle=`rgba(255,183,72,${.05+intensity*.18})`;
-        ctx.fillRect(p.x,topY,TILE+1,TILE+1);
+        ctx.fillRect(p.x,p.y,TILE+1,TILE+1);
       }
     }
   }
 
-  // Spectator follow mode still hides letters, door and escape path.
+
   for(const p of Object.values(remotePlayers)){
     if(p.spectator || p.x==null || p.y==null) continue;
     const tx=Math.floor(+p.x);
@@ -1545,7 +1601,7 @@ function renderSpectatorOverview(){
     }
   }
 
-  // Visible border showing exactly where the maze ends.
+
   ctx.save();
   ctx.strokeStyle="#d4d4d8";
   ctx.lineWidth=3;
@@ -1555,8 +1611,8 @@ function renderSpectatorOverview(){
   ctx.strokeRect(ox+2,oy+2,mapW-4,mapH-4);
   ctx.restore();
 
-  // No paper notes, no door and no escape route for the spectator.
-  // Players are shown with their saved profile photo and name.
+
+  
   for(const p of Object.values(remotePlayers)){
     if(p.spectator || p.x==null || p.y==null) continue;
 
@@ -1609,7 +1665,7 @@ function renderGame(){
       const p=tileScreen(x,y,cx,cy);
       let intensity = spectatorFree ? .72 : (light[y][x] || 0);
 
-      // Completely black means completely hidden: no texture at all.
+
       if(intensity<=0){
         ctx.fillStyle="#000";
         ctx.fillRect(p.x,p.y,TILE+1,TILE+1);
@@ -1622,45 +1678,22 @@ function renderGame(){
           moss?tex.moss:tex.wall,
           p.x,p.y,TILE,
           moss?"#43513b":"#555",
-          x,y
+          x,y,intensity
         );
       }else{
         drawTexture(tex.dirt,p.x,p.y,TILE+1,TILE+1,"#503b27");
-      }
-
-      // Tile-snapped lighting: no radial gradient, no circular flashlight.
-      const darkness = spectatorFree ? .28 : Math.max(0,.78-intensity*.78);
-      if(darkness>0){
-        ctx.fillStyle=`rgba(0,0,0,${darkness})`;
-        ctx.fillRect(p.x,p.y,TILE+1,TILE+1);
-
-        if(maze[y][x] && RAISED_WALLS){
-          ctx.fillRect(p.x,p.y-WALL_HEIGHT,TILE+1,TILE+1);
+        const darkness=Math.max(0,.78-intensity*.78);
+        if(darkness>0){
+          ctx.fillStyle=`rgba(0,0,0,${darkness})`;
+          ctx.fillRect(p.x,p.y,TILE+1,TILE+1);
         }
-      }
-
-      if(!spectatorFree){
-        const warm = .05 + intensity*.18;
-        ctx.fillStyle=`rgba(255,183,72,${warm})`;
+        ctx.fillStyle=`rgba(255,183,72,${.05+intensity*.18})`;
         ctx.fillRect(p.x,p.y,TILE+1,TILE+1);
-
-        if(maze[y][x] && RAISED_WALLS){
-          const topY=p.y-WALL_HEIGHT;
-          ctx.fillStyle=`rgba(255,183,72,${warm})`;
-          ctx.fillRect(p.x,topY,TILE+1,TILE+1);
-        }
-      }
-
-      // Flat-wall fallback depth. Raised walls already draw their own face/shadows.
-      if(maze[y][x] && !RAISED_WALLS){
-        ctx.fillStyle="rgba(0,0,0,.16)";
-        ctx.fillRect(p.x,p.y+TILE-5,TILE,5);
-        ctx.fillRect(p.x+TILE-5,p.y,5,TILE);
       }
     }
   }
 
-  // Exit door using the supplied pixel textures.
+
   const door=tileScreen(exitCell.x,exitCell.y,cx,cy);
   const doorW=TILE*1.10;
   const doorH=doorW*(168/128);
@@ -1689,14 +1722,14 @@ function renderGame(){
     }
   }
 
-  // Physical paper notes: number of the letter position + the letter itself.
-  // Players only read them; nothing is collected or saved.
+
+  
   drawLetterNotes(cx,cy,light,spectatorFree);
 
-  // Once anybody solves the word, every player gets a block-snapped route to the exit.
+
   drawEscapePath(cx,cy);
 
-  // Letters are intentionally NOT drawn anywhere in the maze.
+
   const all={...remotePlayers};
   if(currentUser?.role!=="spectator"){
     all[auth.currentUser.uid]={
@@ -1787,7 +1820,7 @@ async function startLevel1(game){
   }
 
   if(currentUser.role!=="spectator"){
-    // Send the avatar once. Position updates below no longer resend the image.
+
     update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
       x:+localPos.x.toFixed(3),
       y:+localPos.y.toFixed(3),
@@ -1849,7 +1882,6 @@ function listenLevelPlayers(code){
 }
 
 
-
 $("spectateToggle").addEventListener("click",()=>{
   $("spectateOptions").classList.toggle("hidden");
 });
@@ -1866,7 +1898,6 @@ $("spectateOverview").addEventListener("click",()=>{
 $("functionsButton").addEventListener("click",()=>{
   $("functionsPanel").classList.toggle("hidden");
 });
-
 
 
 function combinedMove(){
@@ -1890,7 +1921,7 @@ function tryCreateGridTarget(mv){
 
   let dx=0,dy=0;
 
-  // Dominant-axis movement keeps the player locked to the half-block grid.
+
   if(ax>=ay){
     dx=Math.sign(mv.x)*GRID_STEP;
   }else{
@@ -1937,7 +1968,7 @@ function updateMovement(){
     }
   }
 
-  // Entering the unlocked door sends this player to the waiting portal screen.
+
   if(
     escapePathRevealed &&
     !playerFinished &&
@@ -1979,8 +2010,8 @@ function joyMove(e){
 }
 
 joy.addEventListener("pointerdown",e=>{
-  // Mouse: only left button controls the joystick.
-  // Touch/pen still works normally.
+
+  
   if(e.pointerType==="mouse" && e.button!==0) return;
 
   joyPointer=e.pointerId;
@@ -2005,14 +2036,13 @@ joy.addEventListener("lostpointercapture",()=>{
   knob.style.transform="";
 });
 
-// Right click should never break movement or leave an input "held".
+
 gameScreen.addEventListener("contextmenu",e=>{
   e.preventDefault();
   resetMovementInput();
 });
 
-// Browser context menus / tab changes can swallow keyup or pointerup events.
-// Clear the movement state whenever focus is lost.
+
 window.addEventListener("blur",resetMovementInput);
 document.addEventListener("visibilitychange",()=>{
   if(document.hidden) resetMovementInput();
@@ -2041,8 +2071,8 @@ addEventListener("keydown",e=>{
     target instanceof HTMLSelectElement ||
     target?.isContentEditable;
 
-  // WASD/strzałki sterują graczem tylko podczas właściwej gry
-  // i nigdy podczas pisania w polach tekstowych.
+
+  
   if(
     gameScreen.style.display==="block" &&
     !typing &&
@@ -2270,7 +2300,7 @@ $("saveAvatar").onclick=async()=>{
 
   updateProfileCorner();
 
-  // If the player is already inside a lobby, update the visible lobby avatar immediately.
+
   if(currentGameCode){
     try{
       await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
@@ -2406,7 +2436,7 @@ async function addCurrentUserToGame(code) {
     joinedAt: Date.now()
   });
 
-  // Re-read the saved PFP in case it was changed before joining.
+
   if(currentUser.role!=="spectator"){
     loadSavedAvatar();
     if(avatarData){
