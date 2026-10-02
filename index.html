@@ -263,6 +263,130 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
   display:none;
   box-shadow:0 5px 22px #000b;
 }
+
+#profileCorner{
+  position:fixed;
+  z-index:55;
+  top:max(12px,env(safe-area-inset-top));
+  right:max(12px,env(safe-area-inset-right));
+}
+#profileButton{
+  width:54px;
+  height:54px;
+  padding:0;
+  margin:0;
+  border-radius:50%;
+  overflow:hidden;
+  border:2px solid #5b5b63;
+  background:#232328;
+  box-shadow:0 4px 16px #0008;
+}
+#profileButton img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  display:block;
+}
+#profileFallback{
+  width:100%;
+  height:100%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color:#ddd;
+  font:900 20px monospace;
+}
+#profileMenu{
+  position:absolute;
+  top:62px;
+  right:0;
+  width:170px;
+  padding:7px;
+  background:#111114f5;
+  border:1px solid #39393f;
+  border-radius:10px;
+  box-shadow:0 14px 35px #000b;
+}
+#profileMenu button{
+  width:100%;
+  height:42px;
+  margin:0;
+  border-radius:8px;
+  background:#25252a;
+  color:#f4f4f5;
+  font-size:14px;
+}
+#profileMenu button+button{margin-top:6px}
+#profileMenu .danger{color:#fda4af}
+
+#exitModal{
+  position:fixed;
+  z-index:70;
+  inset:0;
+  background:rgba(0,0,0,.58);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:16px;
+}
+#pinPanel{
+  position:relative;
+  width:min(76vw,512px);
+  aspect-ratio:128/47;
+  background:url("assets/pin_win.png") center/100% 100% no-repeat;
+  image-rendering:pixelated;
+  filter:drop-shadow(0 12px 18px #000c);
+}
+#exitWord{
+  position:absolute;
+  left:10.4%;
+  top:56.5%;
+  width:79.2%;
+  height:25.5%;
+  margin:0!important;
+  padding:0 8px;
+  border:0;
+  outline:none;
+  border-radius:0;
+  background:transparent;
+  color:#fff2c7;
+  text-align:center;
+  text-transform:uppercase;
+  font:900 clamp(16px,4vw,28px) monospace;
+  letter-spacing:.14em;
+  text-shadow:1px 2px #000;
+  box-shadow:none;
+}
+#exitWord::placeholder{color:#c89c4c99}
+#exitError{
+  position:absolute;
+  left:0;
+  right:0;
+  bottom:-34px;
+  color:#fb7185;
+  text-align:center;
+  font:800 13px system-ui;
+  text-shadow:0 2px 3px #000;
+}
+#portalWait{
+  position:fixed;
+  z-index:100;
+  inset:0;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  padding:28px;
+  background:#ffc94d;
+  color:#fff;
+  text-align:center;
+}
+#portalWait.show{display:flex}
+#portalWait .portalText{
+  max-width:760px;
+  font:900 clamp(24px,5vw,48px)/1.12 system-ui,-apple-system,"Segoe UI",sans-serif;
+  text-shadow:0 3px 0 #bc7e1f,0 5px 16px #9d621f88;
+}
+
 </style>
 </head>
 <body>
@@ -281,6 +405,18 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
     </form>
   </div>
 </section>
+
+
+<div id="profileCorner" class="hidden">
+  <button id="profileButton" aria-label="Profil">
+    <img id="profileImage" class="hidden" alt="">
+    <span id="profileFallback">?</span>
+  </button>
+  <div id="profileMenu" class="hidden">
+    <button id="profileChange">Zmień zdjęcie</button>
+    <button id="profileRemove" class="danger">Usuń zdjęcie</button>
+  </div>
+</div>
 
 <section id="homeScreen" class="screen">
   <div class="home">
@@ -324,6 +460,8 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
 
 
 <audio id="ambientAudio" src="assets/ambient.mp3" loop preload="auto"></audio>
+<audio id="doorOpenAudio" src="assets/door_open.mp3" preload="auto"></audio>
+<audio id="portalAudio" src="assets/portal_ambient.mp3" loop preload="auto"></audio>
 
 <section id="gameScreen">
   <canvas id="mazeCanvas"></canvas>
@@ -335,21 +473,19 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
   <div id="finishWait">Czekamy na pozostałych… <span id="finishCount"></span></div>
 </section>
 
+
+<div id="portalWait">
+  <div class="portalText">Oczekiwanie aż wszyscy dojdą do drzwi</div>
+</div>
+
 <div id="rotateScreen">
   <div class="rotateBox"><span class="phone">📱</span>Obróć telefon poziomo, aby grać.</div>
 </div>
 
 <div id="exitModal" class="hidden">
-  <div class="modalBox">
-    <div style="font-size:50px">🔒</div>
-    <h2>Zamknięte drzwi</h2>
-    <p>Wpisz słowo znalezione podczas przechodzenia labiryntu.</p>
-    <input id="exitWord" maxlength="7" autocomplete="off" autocapitalize="characters">
-    <div class="modalActions">
-      <button id="exitCancel" class="hostButton">Wróć</button>
-      <button id="exitSubmit" class="primary">Otwórz</button>
-    </div>
-    <div id="exitError" class="error"></div>
+  <div id="pinPanel">
+    <input id="exitWord" maxlength="7" autocomplete="off" autocapitalize="characters" placeholder="">
+    <div id="exitError"></div>
   </div>
 </div>
 
@@ -450,8 +586,53 @@ let lastEscapePathStart = "";
 let finishingLevel = false;
 const avatarImageCache = new Map();
 
+let moveTarget = null;
+let lastGridStepAt = 0;
+const GRID_STEP = 0.5;
+const GRID_STEP_DELAY = 92;
+const GRID_MOVE_SPEED = 0.105;
+
+function avatarStorageKey(){
+  return "lamiglowki_avatar_"+auth.currentUser.uid;
+}
+
+function updateProfileCorner(){
+  if(!currentUser || currentUser.role==="spectator"){
+    $("profileCorner").classList.add("hidden");
+    return;
+  }
+
+  $("profileCorner").classList.remove("hidden");
+  const img=$("profileImage");
+  const fallback=$("profileFallback");
+
+  if(avatarData){
+    img.src=avatarData;
+    img.classList.remove("hidden");
+    fallback.classList.add("hidden");
+  }else{
+    img.removeAttribute("src");
+    img.classList.add("hidden");
+    fallback.textContent=(currentUser.name || "?").trim().charAt(0).toUpperCase();
+    fallback.classList.remove("hidden");
+  }
+}
+
+function syncAvatarToCurrentGame(){
+  if(!currentGameCode || !auth.currentUser || currentUser?.role==="spectator") return;
+  update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
+    avatar: avatarData || null
+  }).catch(()=>{});
+}
+
+
 const ambientAudio = $("ambientAudio");
+const doorOpenAudio = $("doorOpenAudio");
+const portalAudio = $("portalAudio");
+
 ambientAudio.volume = 0.14;
+doorOpenAudio.volume = 0.55;
+portalAudio.volume = 0.24;
 
 function tryStartAmbient(){
   if(gameScreen.style.display !== "block") return;
@@ -466,7 +647,9 @@ for (const [k,u] of Object.entries({
   wall:"assets/cobblestone.png",
   moss:"assets/mossy_cobblestone.png",
   dirt:"assets/dirt.png",
-  paper:"assets/paper.png"
+  paper:"assets/paper.png",
+  doorLocked:"assets/door_with_a_lock.png",
+  doorUnlocked:"assets/door_unlocked.png"
 })) {
   tex[k] = new Image();
   tex[k].src = u;
@@ -1014,21 +1197,32 @@ function renderGame(){
     }
   }
 
-  // Temporary exit graphic until assets/door.png is supplied.
+  // Exit door using the supplied pixel textures.
   const door=tileScreen(exitCell.x,exitCell.y,cx,cy);
-  exitScreenRect={x:door.x,y:door.y,w:TILE,h:TILE};
+  const doorW=TILE*1.10;
+  const doorH=doorW*(168/128);
+  const doorX=door.x+TILE/2-doorW/2;
+  const doorY=door.y+TILE-doorH;
+  exitScreenRect={x:doorX,y:doorY,w:doorW,h:doorH};
+
   const doorLight = spectatorFree ? .72 : (light[exitCell.y]?.[exitCell.x]||0);
   if(doorLight>0){
-    ctx.fillStyle="#3a2116";
-    ctx.fillRect(door.x+10,door.y+5,TILE-20,TILE-9);
-    ctx.fillStyle="#6d4026";
-    ctx.fillRect(door.x+14,door.y+9,TILE-28,TILE-17);
-    ctx.fillStyle=escapePathRevealed ? "#9ee7a4" : "#d0a257";
-    ctx.fillRect(door.x+TILE-23,door.y+TILE/2,5,5);
+    const dimg=escapePathRevealed ? tex.doorUnlocked : tex.doorLocked;
+    if(dimg.complete && dimg.naturalWidth){
+      ctx.drawImage(dimg,doorX,doorY,doorW,doorH);
+    }else{
+      ctx.fillStyle=escapePathRevealed ? "#f4be43" : "#6d4026";
+      ctx.fillRect(doorX,doorY,doorW,doorH);
+    }
 
-    if(escapePathRevealed){
-      ctx.fillStyle="rgba(130,255,155,.12)";
-      ctx.fillRect(door.x+7,door.y+3,TILE-14,TILE-6);
+    if(!spectatorFree){
+      const darkness=Math.max(0,.66-doorLight*.66);
+      if(darkness>0){
+        ctx.fillStyle=`rgba(0,0,0,${darkness})`;
+        ctx.fillRect(doorX,doorY,doorW,doorH);
+      }
+      ctx.fillStyle=`rgba(255,183,72,${.05+doorLight*.12})`;
+      ctx.fillRect(doorX,doorY,doorW,doorH);
     }
   }
 
@@ -1071,9 +1265,9 @@ const WORDS=[
 ].map(w=>w.toUpperCase()).filter(w=>w.length<=7);
 
 
-function showLetterToast(letter){
+function showGameToast(message){
   const el=$("letterToast");
-  el.textContent=`Znaleziono literę: ${letter}`;
+  el.textContent=message;
   el.classList.add("show");
   clearTimeout(toastTimer);
   toastTimer=setTimeout(()=>el.classList.remove("show"),1200);
@@ -1100,8 +1294,9 @@ async function startLevel1(game){
   levelWord=(game.levelWord || WORDS[seed%WORDS.length]).slice(0,7).toUpperCase();
   letterCells=pickLetterCells(m.rnd,levelWord.length);
 
-  localPos={x:START_X+.5,y:START_Y+.5};
-  spectatorPos={x:START_X+.5,y:START_Y+.5};
+  localPos={x:Math.round((START_X+.5)*2)/2,y:Math.round((START_Y+.5)*2)/2};
+  spectatorPos={x:localPos.x,y:localPos.y};
+  moveTarget=null;
 
   $("finishWait").style.display="none";
   $("exitWord").value="";
@@ -1160,11 +1355,15 @@ function listenLevelPlayers(code){
     if(escapePathRevealed && !wasRevealed){
       currentEscapePath=[];
       lastEscapePathStart="";
-      showLetterToast("Ktoś odblokował wyjście — pojawiła się ścieżka!");
+      showGameToast("Wyjście odblokowane — pojawiła się ścieżka!");
     }
 
     const done=active.filter(p=>p.finishedLevel1).length;
     $("finishCount").textContent=`${done}/${active.length}`;
+    if(playerFinished && active.length>0 && done===active.length){
+      const text=$("portalWait").querySelector(".portalText");
+      if(text) text.textContent="Wszyscy dotarli do drzwi";
+    }
   });
 }
 
@@ -1184,6 +1383,37 @@ function combinedMove(){
   return {x,y};
 }
 
+function snappedHalf(v){
+  return Math.round(v*2)/2;
+}
+
+function tryCreateGridTarget(mv){
+  if(moveTarget || Date.now()-lastGridStepAt < GRID_STEP_DELAY) return;
+
+  const ax=Math.abs(mv.x);
+  const ay=Math.abs(mv.y);
+  if(ax<.22 && ay<.22) return;
+
+  let dx=0,dy=0;
+
+  // Dominant-axis movement keeps the player locked to the half-block grid.
+  if(ax>=ay){
+    dx=Math.sign(mv.x)*GRID_STEP;
+  }else{
+    dy=Math.sign(mv.y)*GRID_STEP;
+  }
+
+  const baseX=snappedHalf(localPos.x);
+  const baseY=snappedHalf(localPos.y);
+  const tx=snappedHalf(baseX+dx);
+  const ty=snappedHalf(baseY+dy);
+
+  if(canMove(tx,ty)){
+    moveTarget={x:tx,y:ty};
+    lastGridStepAt=Date.now();
+  }
+}
+
 function updateMovement(){
   requestAnimationFrame(updateMovement);
   if(gameScreen.style.display!=="block" || !maze) return;
@@ -1192,7 +1422,7 @@ function updateMovement(){
 
   if(currentUser?.role==="spectator"){
     if(!followUid){
-      const sp=.085;
+      const sp=.11;
       spectatorPos.x=Math.max(.5,Math.min(COLS-.5,spectatorPos.x+mv.x*sp));
       spectatorPos.y=Math.max(.5,Math.min(ROWS-.5,spectatorPos.y+mv.y*sp));
     }
@@ -1201,40 +1431,24 @@ function updateMovement(){
 
   if(playerFinished) return;
 
-  // Slower movement than before.
-  const sp=.032;
-  const nx=localPos.x+mv.x*sp;
-  const ny=localPos.y+mv.y*sp;
+  tryCreateGridTarget(mv);
 
-  if(canMove(nx,localPos.y)) localPos.x=nx;
-  if(canMove(localPos.x,ny)) localPos.y=ny;
+  if(moveTarget){
+    const dx=moveTarget.x-localPos.x;
+    const dy=moveTarget.y-localPos.y;
+    const dist=Math.hypot(dx,dy);
 
-  // Magnet the player toward block centers.
-  // This keeps movement smooth while making the avatar "snap" to the tile grid.
-  const ax=Math.abs(mv.x);
-  const ay=Math.abs(mv.y);
-
-  function snapAxis(value,otherValue,isX){
-    const target=Math.floor(value)+.5;
-    const diff=target-value;
-    const step=Math.max(-.028,Math.min(.028,diff*.28));
-    const tx=isX ? value+step : otherValue;
-    const ty=isX ? otherValue : value+step;
-    if(canMove(tx,ty)) return value+step;
-    return value;
+    if(dist<=GRID_MOVE_SPEED){
+      localPos.x=moveTarget.x;
+      localPos.y=moveTarget.y;
+      moveTarget=null;
+    }else{
+      localPos.x+=dx/dist*GRID_MOVE_SPEED;
+      localPos.y+=dy/dist*GRID_MOVE_SPEED;
+    }
   }
 
-  if(ax>ay+.12){
-    localPos.y=snapAxis(localPos.y,localPos.x,false);
-  }else if(ay>ax+.12){
-    localPos.x=snapAxis(localPos.x,localPos.y,true);
-  }else if(ax<.06 && ay<.06){
-    localPos.x=snapAxis(localPos.x,localPos.y,true);
-    localPos.y=snapAxis(localPos.y,localPos.x,false);
-  }
-
-  // After the word has been solved globally, simply entering the exit tile
-  // marks this player as waiting at the end.
+  // Entering the unlocked door sends this player to the waiting portal screen.
   if(
     escapePathRevealed &&
     !playerFinished &&
@@ -1242,23 +1456,11 @@ function updateMovement(){
     Math.floor(localPos.x)===exitCell.x &&
     Math.floor(localPos.y)===exitCell.y
   ){
-    finishingLevel=true;
-    playerFinished=true;
-
-    update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
-      x:+localPos.x.toFixed(3),
-      y:+localPos.y.toFixed(3),
-      finishedLevel1:true
-    }).then(()=>{
-      $("finishWait").style.display="block";
-    }).catch(()=>{
-      finishingLevel=false;
-      playerFinished=false;
-    });
+    enterPortal();
+    return;
   }
 
-
-  if(Date.now()-lastPosWrite>110){
+  if(Date.now()-lastPosWrite>95){
     lastPosWrite=Date.now();
     update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
       x:+localPos.x.toFixed(3),
@@ -1321,65 +1523,134 @@ addEventListener("keyup",e=>{
   recalcKeys();
 });
 
+function nearExit(){
+  return Math.hypot(localPos.x-(exitCell.x+.5),localPos.y-(exitCell.y+.5))<=1.6;
+}
+
 function openExitLock(){
   if(currentUser?.role==="spectator" || playerFinished || escapePathRevealed) return;
-  const dist=Math.hypot(localPos.x-(exitCell.x+.5),localPos.y-(exitCell.y+.5));
-  if(dist>1.35) return;
+  if(!nearExit()) return;
 
   moveVec={x:0,y:0};
+  keyVec={x:0,y:0};
+  moveTarget=null;
   knob.style.transform="";
   $("exitError").textContent="";
+  $("exitWord").value="";
   $("exitModal").classList.remove("hidden");
-  $("exitModal").classList.add("open");
-  setTimeout(()=>$("exitWord").focus(),80);
+  setTimeout(()=>$("exitWord").focus(),60);
+}
+
+async function enterPortal(){
+  if(
+    currentUser?.role==="spectator" ||
+    playerFinished ||
+    finishingLevel ||
+    !escapePathRevealed ||
+    !nearExit()
+  ) return;
+
+  finishingLevel=true;
+  playerFinished=true;
+  moveTarget=null;
+  moveVec={x:0,y:0};
+  keyVec={x:0,y:0};
+
+  try{
+    await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
+      x:+localPos.x.toFixed(3),
+      y:+localPos.y.toFixed(3),
+      finishedLevel1:true
+    });
+
+    ambientAudio.pause();
+    try{
+      portalAudio.currentTime=0;
+      await portalAudio.play();
+    }catch(_){}
+
+    $("portalWait").classList.add("show");
+  }catch(err){
+    console.error(err);
+    finishingLevel=false;
+    playerFinished=false;
+  }
 }
 
 canvas.addEventListener("pointerup",e=>{
-  if(!exitScreenRect) return;
+  if(!exitScreenRect || currentUser?.role==="spectator") return;
+
   const r=canvas.getBoundingClientRect();
   const x=e.clientX-r.left;
   const y=e.clientY-r.top;
+
   if(
     x>=exitScreenRect.x && x<=exitScreenRect.x+exitScreenRect.w &&
     y>=exitScreenRect.y && y<=exitScreenRect.y+exitScreenRect.h
   ){
-    openExitLock();
+    if(escapePathRevealed){
+      enterPortal();
+    }else{
+      openExitLock();
+    }
   }
 });
 
-$("exitCancel").onclick=()=>{
-  $("exitModal").classList.add("hidden");
-  $("exitModal").classList.remove("open");
-};
+$("exitModal").addEventListener("pointerdown",e=>{
+  if(e.target===$("exitModal")) $("exitModal").classList.add("hidden");
+});
 
-$("exitSubmit").onclick=async()=>{
+async function submitDoorCode(){
   const guess=$("exitWord").value.trim().toUpperCase();
+
   if(guess!==levelWord){
-    $("exitError").textContent="Nieprawidłowe słowo.";
+    $("exitError").textContent="Nieprawidłowe słowo";
     return;
   }
 
-  await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
-    wordSolved:true
-  });
+  try{
+    doorOpenAudio.currentTime=0;
+    doorOpenAudio.play().catch(()=>{});
 
-  $("exitModal").classList.add("hidden");
-  $("exitModal").classList.remove("open");
-  $("exitError").textContent="";
-  showLetterToast("Dobre słowo — wyjście odblokowane!");
-};
+    await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
+      wordSolved:true
+    });
+
+    $("exitModal").classList.add("hidden");
+    $("exitError").textContent="";
+    showGameToast("Wyjście odblokowane");
+  }catch(err){
+    console.error(err);
+    $("exitError").textContent="Błąd połączenia";
+  }
+}
+
+$("exitWord").addEventListener("keydown",e=>{
+  if(e.key==="Enter"){
+    e.preventDefault();
+    submitDoorCode();
+  }
+});
+
 
 async function ensureAvatar(){
-  if(currentUser.role==="spectator") return;
-
-  const saved=localStorage.getItem("lamiglowki_avatar_"+auth.currentUser.uid);
-  if(saved){
-    avatarData=saved;
-    $("avatarPreview").src=saved;
+  if(currentUser.role==="spectator"){
+    $("profileCorner").classList.add("hidden");
     return;
   }
 
-  $("avatarPreview").removeAttribute("src");
+  const saved=localStorage.getItem(avatarStorageKey());
+  avatarData=saved || null;
+
+  if(avatarData){
+    $("avatarPreview").src=avatarData;
+    $("avatarPreview").classList.remove("hidden");
+  }else{
+    $("avatarPreview").removeAttribute("src");
+    $("avatarPreview").classList.remove("hidden");
+  }
+
+  updateProfileCorner();
   $("avatarModal").classList.remove("hidden");
 }
 
@@ -1451,9 +1722,45 @@ $("saveAvatar").onclick=async()=>{
     return;
   }
 
-  localStorage.setItem("lamiglowki_avatar_"+auth.currentUser.uid,avatarData);
+  localStorage.setItem(avatarStorageKey(),avatarData);
+  updateProfileCorner();
+  syncAvatarToCurrentGame();
   $("avatarModal").classList.add("hidden");
 };
+
+
+$("profileButton").addEventListener("click",e=>{
+  e.stopPropagation();
+  $("profileMenu").classList.toggle("hidden");
+});
+
+document.addEventListener("click",e=>{
+  if(!$("profileCorner").contains(e.target)){
+    $("profileMenu").classList.add("hidden");
+  }
+});
+
+$("profileChange").addEventListener("click",()=>{
+  $("profileMenu").classList.add("hidden");
+
+  if(avatarData){
+    $("avatarPreview").src=avatarData;
+    $("avatarPreview").classList.remove("hidden");
+  }else{
+    $("avatarPreview").removeAttribute("src");
+  }
+
+  $("avatarModal").classList.remove("hidden");
+});
+
+$("profileRemove").addEventListener("click",()=>{
+  localStorage.removeItem(avatarStorageKey());
+  avatarData=null;
+  $("avatarPreview").removeAttribute("src");
+  updateProfileCorner();
+  syncAvatarToCurrentGame();
+  $("profileMenu").classList.add("hidden");
+});
 
 function renderLobby(players = {}) {
   const list = $("playerList");
@@ -1515,6 +1822,7 @@ async function addCurrentUserToGame(code) {
     name: currentUser.name,
     host: currentUser.role === "host",
     spectator: currentUser.role === "spectator",
+    avatar: currentUser.role === "spectator" ? null : (avatarData || null),
     joinedAt: Date.now()
   });
 
@@ -1569,6 +1877,7 @@ $("loginForm").addEventListener("submit", async e => {
       homeScreen.style.display = "block";
       document.body.style.overflow = "auto";
       $("welcome").textContent = "Zalogowano jako: " + currentUser.name;
+      updateProfileCorner();
 
       if (currentUser.role === "host") {
         $("hostCard").classList.remove("hidden");
