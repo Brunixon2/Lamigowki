@@ -117,6 +117,7 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
 #levelBanner .big{font-size:30px;line-height:1}
 #levelBanner .small{font-size:17px;margin-top:5px;letter-spacing:1px}
 #wordHud{
+  display:none!important;
   position:absolute;
   z-index:20;
   top:max(12px,env(safe-area-inset-top));
@@ -322,6 +323,8 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
 
 
 
+<audio id="ambientAudio" src="assets/ambient.mp3" loop preload="auto"></audio>
+
 <section id="gameScreen">
   <canvas id="mazeCanvas"></canvas>
   <div id="levelBanner"><div class="big">Level 1</div><div class="small">Labirynt</div></div>
@@ -442,6 +445,22 @@ let avatarData = null;
 let followUid = "";
 let levelPlayersListener = null;
 let toastTimer = null;
+let escapePathRevealed = false;
+let currentEscapePath = [];
+let lastEscapePathStart = "";
+let finishingLevel = false;
+const avatarImageCache = new Map();
+
+const ambientAudio = $("ambientAudio");
+ambientAudio.volume = 0.14;
+
+function tryStartAmbient(){
+  if(gameScreen.style.display !== "block") return;
+  ambientAudio.play().catch(()=>{});
+}
+
+// If autoplay is blocked on a client, the first touch/joystick interaction starts it.
+document.addEventListener("pointerdown", tryStartAmbient, {passive:true});
 
 const tex = {};
 for (const [k,u] of Object.entries({
@@ -669,7 +688,15 @@ function canMove(x,y){
   const r=.26;
   return [
     [x-r,y-r],[x+r,y-r],[x-r,y+r],[x+r,y+r]
-  ].every(([px,py])=>maze?.[Math.floor(py)]?.[Math.floor(px)]===0);
+  ].every(([px,py])=>{
+    const tx=Math.floor(px);
+    const ty=Math.floor(py);
+    if(maze?.[ty]?.[tx]!==0) return false;
+
+    // Before anybody solves the word, the exit tile acts like a locked door.
+    if(!escapePathRevealed && tx===exitCell.x && ty===exitCell.y) return false;
+    return true;
+  });
 }
 
 function drawTexture(img,x,y,w,h,fallback){
@@ -681,26 +708,38 @@ function drawTexture(img,x,y,w,h,fallback){
   }
 }
 
+function getAvatarImage(p){
+  if(!p?.avatar) return null;
+  const key=(p.uid || p.name || "player")+"|"+p.avatar.length+"|"+p.avatar.slice(-24);
+
+  if(avatarImageCache.has(key)) return avatarImageCache.get(key);
+
+  const im=new Image();
+  im.decoding="async";
+  im.src=p.avatar;
+  avatarImageCache.set(key,im);
+  return im;
+}
+
 function drawAvatar(p,cx,cy){
   const sx = p.x*TILE-cx+innerWidth/2;
   const sy = p.y*TILE-cy+innerHeight/2;
-  const r = 17;
+  const r = 18;
+
+  const im=getAvatarImage(p);
 
   ctx.save();
   ctx.beginPath();
   ctx.arc(sx,sy,r,0,Math.PI*2);
   ctx.clip();
 
-  if(p._img && p._img.complete){
-    ctx.drawImage(p._img,sx-r,sy-r,r*2,r*2);
-  }else if(p.avatar){
-    const im = new Image();
-    im.src = p.avatar;
-    p._img = im;
-    ctx.fillStyle="#777";
-    ctx.fillRect(sx-r,sy-r,r*2,r*2);
+  if(im && im.complete && im.naturalWidth){
+    const side=Math.min(im.naturalWidth,im.naturalHeight);
+    const ox=(im.naturalWidth-side)/2;
+    const oy=(im.naturalHeight-side)/2;
+    ctx.drawImage(im,ox,oy,side,side,sx-r,sy-r,r*2,r*2);
   }else{
-    ctx.fillStyle="#777";
+    ctx.fillStyle="#666";
     ctx.fillRect(sx-r,sy-r,r*2,r*2);
   }
 
@@ -708,7 +747,7 @@ function drawAvatar(p,cx,cy){
 
   ctx.beginPath();
   ctx.arc(sx,sy,r+1,0,Math.PI*2);
-  ctx.strokeStyle="#eee";
+  ctx.strokeStyle="#f3f3f3";
   ctx.lineWidth=2;
   ctx.stroke();
 
@@ -782,6 +821,81 @@ function tileScreen(x,y,cx,cy){
     x:x*TILE-cx+innerWidth/2,
     y:y*TILE-cy+innerHeight/2
   };
+}
+
+
+function findShortestPath(startX,startY,endX,endY){
+  const startKey=startX+","+startY;
+  const endKey=endX+","+endY;
+  const queue=[[startX,startY]];
+  const prev=new Map([[startKey,null]]);
+  const dirs=[[1,0],[-1,0],[0,1],[0,-1]];
+
+  while(queue.length){
+    const [x,y]=queue.shift();
+    const key=x+","+y;
+    if(key===endKey) break;
+
+    for(const [dx,dy] of dirs){
+      const nx=x+dx, ny=y+dy;
+      if(nx<0||ny<0||nx>=COLS||ny>=ROWS) continue;
+      if(maze?.[ny]?.[nx]!==0) continue;
+
+      const nk=nx+","+ny;
+      if(prev.has(nk)) continue;
+      prev.set(nk,key);
+      queue.push([nx,ny]);
+    }
+  }
+
+  if(!prev.has(endKey)) return [];
+
+  const path=[];
+  let key=endKey;
+  while(key){
+    const [x,y]=key.split(",").map(Number);
+    path.push({x,y});
+    key=prev.get(key);
+  }
+  path.reverse();
+  return path;
+}
+
+function ensureEscapePath(){
+  if(!escapePathRevealed || currentUser?.role==="spectator" || !maze){
+    currentEscapePath=[];
+    lastEscapePathStart="";
+    return;
+  }
+
+  const sx=Math.floor(localPos.x);
+  const sy=Math.floor(localPos.y);
+  const key=sx+","+sy;
+
+  if(key!==lastEscapePathStart){
+    lastEscapePathStart=key;
+    currentEscapePath=findShortestPath(sx,sy,exitCell.x,exitCell.y);
+  }
+}
+
+function drawEscapePath(cx,cy){
+  if(!escapePathRevealed || currentUser?.role==="spectator") return;
+
+  ensureEscapePath();
+
+  for(let i=1;i<currentEscapePath.length;i++){
+    const c=currentEscapePath[i];
+    const p=tileScreen(c.x,c.y,cx,cy);
+
+    // The route is snapped to floor blocks, not a freeform glowing curve.
+    ctx.fillStyle="rgba(255,190,72,.22)";
+    ctx.fillRect(p.x+7,p.y+7,TILE-14,TILE-14);
+
+    if(i%2===0){
+      ctx.fillStyle="rgba(255,220,130,.9)";
+      ctx.fillRect(p.x+TILE/2-4,p.y+TILE/2-4,8,8);
+    }
+  }
 }
 
 function renderGame(){
@@ -859,9 +973,17 @@ function renderGame(){
     ctx.fillRect(door.x+10,door.y+5,TILE-20,TILE-9);
     ctx.fillStyle="#6d4026";
     ctx.fillRect(door.x+14,door.y+9,TILE-28,TILE-17);
-    ctx.fillStyle="#d0a257";
+    ctx.fillStyle=escapePathRevealed ? "#9ee7a4" : "#d0a257";
     ctx.fillRect(door.x+TILE-23,door.y+TILE/2,5,5);
+
+    if(escapePathRevealed){
+      ctx.fillStyle="rgba(130,255,155,.12)";
+      ctx.fillRect(door.x+7,door.y+3,TILE-14,TILE-6);
+    }
   }
+
+  // Once anybody solves the word, every player gets a block-snapped route to the exit.
+  drawEscapePath(cx,cy);
 
   // Letters are intentionally NOT drawn anywhere in the maze.
   const all={...remotePlayers};
@@ -912,12 +1034,17 @@ function showLetterToast(letter){
 async function startLevel1(game){
   gameStartedHandled=true;
   playerFinished=false;
+  finishingLevel=false;
+  escapePathRevealed=false;
+  currentEscapePath=[];
+  lastEscapePathStart="";
 
   loginScreen.style.display="none";
   homeScreen.style.display="none";
   gameScreen.style.display="block";
   document.body.classList.add("game-running");
   document.body.style.overflow="hidden";
+  tryStartAmbient();
 
   const seed=game.levelSeed || game.startedAt || 1;
   const m=generateMaze(seed);
@@ -980,6 +1107,16 @@ function listenLevelPlayers(code){
     }
 
     const active=Object.values(remotePlayers).filter(p=>!p.spectator);
+
+    const wasRevealed=escapePathRevealed;
+    escapePathRevealed=active.some(p=>p.wordSolved===true);
+
+    if(escapePathRevealed && !wasRevealed){
+      currentEscapePath=[];
+      lastEscapePathStart="";
+      showLetterToast("Ktoś odblokował wyjście — pojawiła się ścieżka!");
+    }
+
     const done=active.filter(p=>p.finishedLevel1).length;
     $("finishCount").textContent=`${done}/${active.length}`;
   });
@@ -1018,12 +1155,61 @@ function updateMovement(){
 
   if(playerFinished) return;
 
-  const sp=.058;
+  // Slower movement than before.
+  const sp=.032;
   const nx=localPos.x+mv.x*sp;
   const ny=localPos.y+mv.y*sp;
 
   if(canMove(nx,localPos.y)) localPos.x=nx;
   if(canMove(localPos.x,ny)) localPos.y=ny;
+
+  // Magnet the player toward block centers.
+  // This keeps movement smooth while making the avatar "snap" to the tile grid.
+  const ax=Math.abs(mv.x);
+  const ay=Math.abs(mv.y);
+
+  function snapAxis(value,otherValue,isX){
+    const target=Math.floor(value)+.5;
+    const diff=target-value;
+    const step=Math.max(-.028,Math.min(.028,diff*.28));
+    const tx=isX ? value+step : otherValue;
+    const ty=isX ? otherValue : value+step;
+    if(canMove(tx,ty)) return value+step;
+    return value;
+  }
+
+  if(ax>ay+.12){
+    localPos.y=snapAxis(localPos.y,localPos.x,false);
+  }else if(ay>ax+.12){
+    localPos.x=snapAxis(localPos.x,localPos.y,true);
+  }else if(ax<.06 && ay<.06){
+    localPos.x=snapAxis(localPos.x,localPos.y,true);
+    localPos.y=snapAxis(localPos.y,localPos.x,false);
+  }
+
+  // After the word has been solved globally, simply entering the exit tile
+  // marks this player as waiting at the end.
+  if(
+    escapePathRevealed &&
+    !playerFinished &&
+    !finishingLevel &&
+    Math.floor(localPos.x)===exitCell.x &&
+    Math.floor(localPos.y)===exitCell.y
+  ){
+    finishingLevel=true;
+    playerFinished=true;
+
+    update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
+      x:+localPos.x.toFixed(3),
+      y:+localPos.y.toFixed(3),
+      finishedLevel1:true
+    }).then(()=>{
+      $("finishWait").style.display="block";
+    }).catch(()=>{
+      finishingLevel=false;
+      playerFinished=false;
+    });
+  }
 
   // Hidden letter pickups: the maze never shows where they are.
   for(let i=0;i<letterCells.length;i++){
@@ -1100,7 +1286,7 @@ addEventListener("keyup",e=>{
 });
 
 function openExitLock(){
-  if(currentUser?.role==="spectator" || playerFinished) return;
+  if(currentUser?.role==="spectator" || playerFinished || escapePathRevealed) return;
   const dist=Math.hypot(localPos.x-(exitCell.x+.5),localPos.y-(exitCell.y+.5));
   if(dist>1.35) return;
 
@@ -1137,18 +1323,14 @@ $("exitSubmit").onclick=async()=>{
     return;
   }
 
-  playerFinished=true;
-  localPos={x:exitCell.x+.5,y:exitCell.y+.5};
-
   await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
-    x:+localPos.x.toFixed(3),
-    y:+localPos.y.toFixed(3),
-    finishedLevel1:true
+    wordSolved:true
   });
 
   $("exitModal").classList.add("hidden");
   $("exitModal").classList.remove("open");
-  $("finishWait").style.display="block";
+  $("exitError").textContent="";
+  showLetterToast("Dobre słowo — wyjście odblokowane!");
 };
 
 async function ensureAvatar(){
