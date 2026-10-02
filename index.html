@@ -732,10 +732,17 @@ const L2_BRIDGE_Y = 7;
 const L2_BRIDGE_H = 2;
 const L2_ENTRY_BRIDGE_X = 5;
 const L2_ENTRY_BRIDGE_W = 6;
-const L2_EXIT_BRIDGE_X = 23;
-const L2_EXIT_BRIDGE_W = 6;
-const L2_EXIT_BRIDGE_Y = L2_PLATFORM_Y;
-const L2_EXIT_BRIDGE_H = L2_PLATFORM_H;
+const L2_EXIT_BRIDGE_X = 5;
+const L2_EXIT_BRIDGE_W = L2_RIGHT_GROUND_START-L2_EXIT_BRIDGE_X;
+const L2_EXIT_BRIDGE_Y = 1;
+const L2_EXIT_BRIDGE_H = L2_ROWS-2;
+const L2_TORCH_RADIUS = LIGHT_RADIUS/2.5;
+const L2_TORCHES = [
+  {x:4.5,y:2.5,visible:true},
+  {x:29.5,y:2.5,visible:true},
+  {x:4.5,y:13.5,visible:false},
+  {x:29.5,y:13.5,visible:false}
+];
 
 let maze = null;
 let localPos = {x:START_X+.5,y:START_Y+.5};
@@ -767,6 +774,7 @@ let level2ChallengeAt = 0;
 let level2ExitAt = 0;
 let level2Schedule = new Map();
 let level2ProtectedRow = L2_PLATFORM_Y + 2;
+let level2Survivors = new Set();
 let level2LastFallAt = 30000;
 let level2Drowning = false;
 let level2TransitionSent = false;
@@ -878,7 +886,8 @@ for (const [k,u] of Object.entries({
   water:"assets/water_still.png",
   oak:"assets/oak_plank.png",
   spruce:"assets/spruce_plank.png",
-  door:"assets/door.png"
+  door:"assets/door.png",
+  torch:"assets/torch.png"
 })) {
   tex[k] = new Image();
   tex[k].src = u;
@@ -1788,25 +1797,29 @@ function l2InsideRightGround(x,y){
 
 function buildLevel2Schedule(seed){
   const rnd=seededRandom(seed);
-  level2ProtectedRow=L2_BRIDGE_Y+(rnd()<.5?0:1);
   level2Schedule=new Map();
+  level2Survivors=new Set();
 
-  const candidates=[];
+  const cells=[];
 
   for(let y=L2_PLATFORM_Y;y<L2_PLATFORM_Y+L2_PLATFORM_H;y++){
     for(let x=L2_PLATFORM_X;x<L2_PLATFORM_X+L2_PLATFORM_W;x++){
-      if(y===level2ProtectedRow) continue;
-      candidates.push({x,y});
+      cells.push({x,y});
     }
   }
 
-  for(let i=candidates.length-1;i>0;i--){
+  for(let i=cells.length-1;i>0;i--){
     const j=Math.floor(rnd()*(i+1));
-    const tmp=candidates[i];
-    candidates[i]=candidates[j];
-    candidates[j]=tmp;
+    const tmp=cells[i];
+    cells[i]=cells[j];
+    cells[j]=tmp;
   }
 
+  for(const c of cells.slice(0,4)){
+    level2Survivors.add(c.x+","+c.y);
+  }
+
+  const candidates=cells.slice(4);
   let cursor=0;
   let fallAt=4800;
   let group=0;
@@ -1814,7 +1827,7 @@ function buildLevel2Schedule(seed){
 
   while(cursor<candidates.length){
     const remaining=candidates.length-cursor;
-    const groupSize=Math.min(remaining,7+Math.floor(rnd()*3));
+    const groupSize=Math.min(remaining,7+Math.floor(rnd()*4));
     const warningAt=fallAt-1700;
 
     for(let i=0;i<groupSize;i++){
@@ -1828,7 +1841,7 @@ function buildLevel2Schedule(seed){
 
     cursor+=groupSize;
     lastFallAt=fallAt;
-    fallAt+=3300+rnd()*600;
+    fallAt+=3200+rnd()*700;
     group++;
   }
 
@@ -1837,7 +1850,7 @@ function buildLevel2Schedule(seed){
 
 function level2OakState(x,y,now=Date.now()){
   if(!l2InsideOak(x,y)) return "none";
-  if(y===level2ProtectedRow) return "safe";
+  if(level2Survivors.has(x+","+y)) return "safe";
   if(level2Phase==="gather") return "safe";
 
   const timing=level2Schedule.get(x+","+y);
@@ -1860,6 +1873,8 @@ function level2CellSolid(tx,ty,now=Date.now()){
 
   if(l2InsideLeftGround(tx,ty) || l2InsideRightGround(tx,ty)) return true;
 
+  if(level2ExitBridgeReady(now) && l2InsideExitBridge(tx,ty)) return true;
+
   if(l2InsideEntryBridge(tx,ty)){
     if(level2Phase==="gather") return true;
     if(level2Phase==="challenge" && level2ChallengeAt && now-level2ChallengeAt<380) return true;
@@ -1871,7 +1886,6 @@ function level2CellSolid(tx,ty,now=Date.now()){
     return state!=="falling" && state!=="fallen";
   }
 
-  if(l2InsideExitBridge(tx,ty)) return level2ExitBridgeReady(now);
   return false;
 }
 
@@ -1960,7 +1974,7 @@ function drawRaisedLevel2Tile(img,x,y,size,height,fallback,tint=null,offset=0,al
 }
 
 function level2DoorRect(side,tile,ox,oy){
-  const x=side==="left" ? .03 : L2_COLS-1+.03;
+  const x=side==="left" ? .03 : L2_COLS-2+.03;
   const y=7.15;
   const w=tile*.94;
   const h=w*(168/128);
@@ -1976,15 +1990,16 @@ function drawLevel2Door(side,tile,ox,oy,intensity=1){
   if(intensity<=0) return;
 
   const r=level2DoorRect(side,tile,ox,oy);
+  const doorImg=side==="right" ? tex.doorUnlocked : tex.door;
 
   ctx.save();
   ctx.fillStyle="#17110d";
   ctx.fillRect(r.x,r.y,r.w,r.h);
 
-  if(tex.door.complete && tex.door.naturalWidth){
-    ctx.drawImage(tex.door,r.x,r.y,r.w,r.h);
+  if(doorImg.complete && doorImg.naturalWidth){
+    ctx.drawImage(doorImg,r.x,r.y,r.w,r.h);
   }else{
-    ctx.fillStyle="#76502f";
+    ctx.fillStyle=side==="right" ? "#e9bd45" : "#76502f";
     ctx.fillRect(r.x,r.y,r.w,r.h);
   }
 
@@ -2020,19 +2035,31 @@ function buildLevel2LightMap(){
   const light=Array.from({length:L2_ROWS},()=>Array(L2_COLS).fill(0));
   const sources=collectLevel2TorchSources();
 
-  for(const s of sources){
-    const sx=Math.floor(s.x);
-    const sy=Math.floor(s.y);
+  const addSource=(sx,sy,radius)=>{
+    const minX=Math.max(0,Math.floor(sx-radius));
+    const maxX=Math.min(L2_COLS-1,Math.ceil(sx+radius));
+    const minY=Math.max(0,Math.floor(sy-radius));
+    const maxY=Math.min(L2_ROWS-1,Math.ceil(sy+radius));
 
-    for(let y=Math.max(0,sy-LIGHT_RADIUS);y<=Math.min(L2_ROWS-1,sy+LIGHT_RADIUS);y++){
-      for(let x=Math.max(0,sx-LIGHT_RADIUS);x<=Math.min(L2_COLS-1,sx+LIGHT_RADIUS);x++){
-        const d=Math.abs(x-sx)+Math.abs(y-sy);
-        if(d>LIGHT_RADIUS) continue;
+    for(let y=minY;y<=maxY;y++){
+      for(let x=minX;x<=maxX;x++){
+        const dx=(x+.5)-sx;
+        const dy=(y+.5)-sy;
+        const d=Math.hypot(dx,dy);
+        if(d>radius) continue;
 
-        const strength=Math.max(.12,1-d/(LIGHT_RADIUS+1));
+        const strength=Math.max(.12,1-d/(radius+1));
         light[y][x]=Math.max(light[y][x],strength);
       }
     }
+  };
+
+  for(const s of sources){
+    addSource(s.x,s.y,LIGHT_RADIUS);
+  }
+
+  for(const t of L2_TORCHES){
+    addSource(t.x,t.y,L2_TORCH_RADIUS);
   }
 
   return light;
@@ -2050,6 +2077,41 @@ function level2WallLightIntensity(x,y,light){
   }
 
   return v;
+}
+
+function drawLevel2Torch(tile,ox,oy,t){
+  if(!t.visible) return;
+  if(!tex.torch.complete || !tex.torch.naturalWidth) return;
+
+  const img=tex.torch;
+  const now=Date.now();
+
+  let frameSize;
+  let frames;
+  let sx=0;
+  let sy=0;
+
+  if(img.naturalHeight>=img.naturalWidth){
+    frameSize=img.naturalWidth;
+    frames=Math.max(1,Math.floor(img.naturalHeight/frameSize));
+    sy=(Math.floor(now/110)%frames)*frameSize;
+  }else{
+    frameSize=img.naturalHeight;
+    frames=Math.max(1,Math.floor(img.naturalWidth/frameSize));
+    sx=(Math.floor(now/110)%frames)*frameSize;
+  }
+
+  const h=tile*.78;
+  const aspect=frameSize/frameSize;
+  const w=Math.max(tile*.22,h*aspect);
+  const x=ox+t.x*tile-w/2;
+  const y=oy+t.y*tile-h*.72;
+
+  ctx.save();
+  ctx.shadowColor="rgba(255,166,55,.65)";
+  ctx.shadowBlur=tile*.14;
+  ctx.drawImage(img,sx,sy,frameSize,frameSize,x,y,w,h);
+  ctx.restore();
 }
 
 function drawLevel2WaterTile(x,y,size,now,intensity){
@@ -2205,6 +2267,30 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
     }
   }
 
+
+  if(level2Phase==="exit" && level2ExitAt){
+    const p=Math.max(0,Math.min(1,(now-level2ExitAt)/900));
+    const offset=(1-p)*tile*.68;
+    const alpha=.2+p*.8;
+
+    for(let y=L2_EXIT_BRIDGE_Y;y<L2_EXIT_BRIDGE_Y+L2_EXIT_BRIDGE_H;y++){
+      for(let x=L2_EXIT_BRIDGE_X;x<L2_EXIT_BRIDGE_X+L2_EXIT_BRIDGE_W;x++){
+        drawRaisedLevel2Tile(
+          tex.spruce,
+          ox+x*tile,
+          oy+y*tile,
+          tile,
+          tile*.12,
+          "#5b351f",
+          null,
+          offset,
+          alpha,
+          light?.[y]?.[x]||0
+        );
+      }
+    }
+  }
+
   for(let y=L2_PLATFORM_Y;y<L2_PLATFORM_Y+L2_PLATFORM_H;y++){
     for(let x=L2_PLATFORM_X;x<L2_PLATFORM_X+L2_PLATFORM_W;x++){
       const state=level2OakState(x,y,now);
@@ -2243,28 +2329,6 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
     }
   }
 
-  if(level2Phase==="exit" && level2ExitAt){
-    const p=Math.max(0,Math.min(1,(now-level2ExitAt)/900));
-    const offset=(1-p)*tile*.68;
-    const alpha=.2+p*.8;
-
-    for(let y=L2_EXIT_BRIDGE_Y;y<L2_EXIT_BRIDGE_Y+L2_EXIT_BRIDGE_H;y++){
-      for(let x=L2_EXIT_BRIDGE_X;x<L2_EXIT_BRIDGE_X+L2_EXIT_BRIDGE_W;x++){
-        drawRaisedLevel2Tile(
-          tex.spruce,
-          ox+x*tile,
-          oy+y*tile,
-          tile,
-          tile*.12,
-          "#5b351f",
-          null,
-          offset,
-          alpha,
-          light?.[y]?.[x]||0
-        );
-      }
-    }
-  }
 
   const leftDoorLight=Math.max(
     level2WallLightIntensity(0,7,light),
@@ -2273,16 +2337,20 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
     light?.[8]?.[1]||0
   );
 
-  const rightWallX=L2_COLS-1;
+  const rightDoorX=L2_COLS-2;
   const rightDoorLight=Math.max(
-    level2WallLightIntensity(rightWallX,7,light),
-    level2WallLightIntensity(rightWallX,8,light),
-    light?.[7]?.[L2_COLS-2]||0,
-    light?.[8]?.[L2_COLS-2]||0
+    light?.[7]?.[rightDoorX]||0,
+    light?.[8]?.[rightDoorX]||0,
+    light?.[7]?.[rightDoorX-1]||0,
+    light?.[8]?.[rightDoorX-1]||0
   );
 
   drawLevel2Door("left",tile,ox,oy,leftDoorLight);
   drawLevel2Door("right",tile,ox,oy,rightDoorLight);
+
+  for(const t of L2_TORCHES){
+    drawLevel2Torch(tile,ox,oy,t);
+  }
 
   const players=Object.values(remotePlayers).filter(p=>
     !p.spectator && p.level===2 && p.x!=null && p.y!=null
@@ -2453,7 +2521,7 @@ function maybeAdvanceLevel2Host(){
   if(
     level2Phase==="challenge" &&
     level2ChallengeAt &&
-    Date.now()-level2ChallengeAt>=level2LastFallAt+1600
+    Date.now()-level2ChallengeAt>=level2LastFallAt+760
   ){
     level2PhaseWritePending=true;
     update(ref(db,`games/${currentGameCode}`),{
@@ -2476,10 +2544,16 @@ function drownLevel2(){
   }catch(_){}
 
   setTimeout(()=>{
-    localPos={
-      x:L2_PLATFORM_X+.5,
-      y:level2ProtectedRow+.5
-    };
+    const survivors=[...level2Survivors];
+    let respawn={x:L2_PLATFORM_X+.5,y:L2_PLATFORM_Y+.5};
+
+    if(survivors.length){
+      const pick=survivors[Math.abs((auth.currentUser?.uid||"").split("").reduce((a,c)=>a+c.charCodeAt(0),0))%survivors.length];
+      const [sx,sy]=pick.split(",").map(Number);
+      respawn={x:sx+.5,y:sy+.5};
+    }
+
+    localPos=respawn;
     moveTarget=null;
     level2Drowning=false;
     $("drownOverlay").classList.remove("show");
