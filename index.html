@@ -2958,6 +2958,8 @@ async function enterPortal(){
   moveVec={x:0,y:0};
   keyVec={x:0,y:0};
 
+  $("portalWait").classList.add("show");
+
   try{
     await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
       x:+localPos.x.toFixed(3),
@@ -2965,17 +2967,22 @@ async function enterPortal(){
       finishedLevel1:true
     });
 
-    ambientAudio.pause();
-    try{
-      portalAudio.currentTime=0;
-      await portalAudio.play();
-    }catch(_){}
+    if(currentLevel===1){
+      ambientAudio.pause();
 
-    $("portalWait").classList.add("show");
+      try{
+        portalAudio.currentTime=0;
+        await portalAudio.play();
+      }catch(_){}
+    }
   }catch(err){
     console.error(err);
-    finishingLevel=false;
-    playerFinished=false;
+
+    if(currentLevel===1){
+      $("portalWait").classList.remove("show");
+      finishingLevel=false;
+      playerFinished=false;
+    }
   }
 }
 
