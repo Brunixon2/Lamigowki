@@ -480,6 +480,16 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
   border-radius:8px;
   box-shadow:0 10px 28px #000b;
 }
+#teleportDoorButton{
+  width:100%;
+  height:40px;
+  margin-top:8px;
+  border-radius:6px;
+  background:#2c2c32;
+  color:#fff;
+  border:1px solid #4b4b52;
+  font-size:14px;
+}
 .functionRow{
   padding:7px 8px;
   background:#19191d;
@@ -580,6 +590,7 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
 <audio id="doorOpenAudio" src="assets/door_open.mp3" preload="auto"></audio>
 <audio id="portalAudio" src="assets/portal_ambient.mp3" loop preload="auto"></audio>
 <audio id="splashAudio" src="assets/splash.mp3" preload="auto"></audio>
+<audio id="level2Audio" src="assets/level_2_ambient.mp3" loop preload="auto"></audio>
 
 <section id="gameScreen">
   <canvas id="mazeCanvas"></canvas>
@@ -591,6 +602,7 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
     <button id="functionsButton">Funkcje</button>
     <div id="functionsPanel" class="hidden">
       <div class="functionRow">Hasło do drzwi: <strong id="hostDoorPassword">—</strong></div>
+      <button id="teleportDoorButton">Teleport do drzwi</button>
 </div>
   </div>
 <div id="joy"><div id="joyKnob"></div></div>
@@ -831,16 +843,23 @@ const ambientAudio = $("ambientAudio");
 const doorOpenAudio = $("doorOpenAudio");
 const portalAudio = $("portalAudio");
 const splashAudio = $("splashAudio");
+const level2Audio = $("level2Audio");
 
 ambientAudio.volume = 0.14;
 doorOpenAudio.volume = 0.55;
 portalAudio.volume = 0.24;
 splashAudio.volume = 0.35;
+level2Audio.volume = 0.16;
 
 
 function tryStartAmbient(){
   if(gameScreen.style.display !== "block") return;
-  ambientAudio.play().catch(()=>{});
+
+  if(currentLevel===2){
+    level2Audio.play().catch(()=>{});
+  }else{
+    ambientAudio.play().catch(()=>{});
+  }
 }
 
 
@@ -2257,8 +2276,9 @@ async function startLevel2(game){
   if(portalText) portalText.textContent="Oczekiwanie aż wszyscy dojdą do drzwi";
 
   portalAudio.pause();
-  ambientAudio.currentTime=0;
-  ambientAudio.play().catch(()=>{});
+  ambientAudio.pause();
+  level2Audio.currentTime=0;
+  level2Audio.play().catch(()=>{});
 
   loginScreen.style.display="none";
   homeScreen.style.display="none";
@@ -2281,7 +2301,12 @@ async function startLevel2(game){
   $("levelBanner").classList.add("show");
   setTimeout(()=>$("levelBanner").classList.remove("show"),2600);
 
-  $("hostFunctions").classList.add("hidden");
+  if(currentUser.role==="host"){
+    $("hostFunctions").classList.remove("hidden");
+    $("hostDoorPassword").textContent="—";
+  }else{
+    $("hostFunctions").classList.add("hidden");
+  }
   $("finishWait").style.display="none";
 
   if(currentUser.role==="spectator"){
@@ -2613,6 +2638,62 @@ $("spectateOverview").addEventListener("click",()=>{
 
 $("functionsButton").addEventListener("click",()=>{
   $("functionsPanel").classList.toggle("hidden");
+});
+
+function findLevel1TeleportSpot(){
+  const candidates=[
+    [exitCell.x-1,exitCell.y],
+    [exitCell.x+1,exitCell.y],
+    [exitCell.x,exitCell.y-1],
+    [exitCell.x,exitCell.y+1],
+    [exitCell.x-2,exitCell.y],
+    [exitCell.x+2,exitCell.y],
+    [exitCell.x,exitCell.y-2],
+    [exitCell.x,exitCell.y+2]
+  ];
+
+  for(const [x,y] of candidates){
+    if(maze?.[y]?.[x]===0){
+      return {x:x+.5,y:y+.5};
+    }
+  }
+
+  return {x:exitCell.x+.5,y:exitCell.y+.5};
+}
+
+async function teleportHostToDoor(){
+  if(currentUser?.role!=="host" || !auth.currentUser || !currentGameCode) return;
+
+  resetMovementInput();
+
+  if(currentLevel===1){
+    const spot=findLevel1TeleportSpot();
+    localPos={x:spot.x,y:spot.y};
+    moveTarget=null;
+
+    await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
+      x:+localPos.x.toFixed(3),
+      y:+localPos.y.toFixed(3),
+      level:1
+    }).catch(()=>{});
+
+    return;
+  }
+
+  if(currentLevel===2){
+    localPos={x:30.5,y:8};
+    moveTarget=null;
+
+    await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
+      x:+localPos.x.toFixed(3),
+      y:+localPos.y.toFixed(3),
+      level:2
+    }).catch(()=>{});
+  }
+}
+
+$("teleportDoorButton").addEventListener("click",()=>{
+  teleportHostToDoor();
 });
 
 
