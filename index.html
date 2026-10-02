@@ -1124,12 +1124,11 @@ function drawMazeWall(img,x,y,size,fallback,gridX,gridY,intensity){
   const dx=WALL_DEPTH_X*scale;
   const tx=x-dx;
   const ty=y-h;
-  const southOpen=gridY>=ROWS-1 || maze?.[gridY+1]?.[gridX]!==1;
   const eastOpen=gridX>=COLS-1 || maze?.[gridY]?.[gridX+1]!==1;
   const darkness=Math.max(0,.78-intensity*.78);
   const warm=.05+intensity*.18;
 
-  if(southOpen){
+  {
     ctx.save();
     ctx.beginPath();
     ctx.moveTo(tx,ty+size);
