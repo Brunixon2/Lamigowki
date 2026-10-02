@@ -98,8 +98,14 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
 
 
 
+
+
+
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
+import {
+  getAuth, signInWithEmailAndPassword, signOut
+} from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
 import {
   getDatabase, ref, set, get, update, onValue, onDisconnect
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js";
@@ -111,46 +117,12 @@ const firebaseConfig = {
   projectId: "lamiglowki-60ed9",
   storageBucket: "lamiglowki-60ed9.firebasestorage.app",
   messagingSenderId: "937018489247",
-  appId: "1:937018489247:web:08504c87cf08ceb147e5aa",
-  measurementId: "G-RF4JC8CCRE"
+  appId: "1:937018489247:web:08504c87cf08ceb147e5aa"
 };
 
 const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
 const db = getDatabase(app);
-
-const USERS = {
-  "AdmP": {pin:"4208",name:"Adam Pypla"},
-  "AlkK": {pin:"0271",name:"Aleksandra Kaczmarek"},
-  "AlcJ": {pin:"9234",name:"Alicja Jarus"},
-  "AmlM": {pin:"4400",name:"Amelka Michalak"},
-  "ArkL": {pin:"2635",name:"Arek Łeckio"},
-  "BarB": {pin:"1369",name:"Barbara Baryga"},
-  "BlnS": {pin:"1278",name:"Blanka Sobota"},
-  "BrnG": {pin:"1199",name:"Bruno Grędziak",host:true},
-  "BrnK": {pin:"7780",name:"Bruno Klause"},
-  "EmlS": {pin:"7478",name:"Emilia Skotarek"},
-  "GabJ": {pin:"9759",name:"Gabryś Jędrzejewski"},
-  "IgrR": {pin:"4673",name:"Igor Rybakowski"},
-  "IgrS": {pin:"7554",name:"Igor Szwarc"},
-  "JkbD": {pin:"2413",name:"Jakub Dworniczak"},
-  "KasK": {pin:"0134",name:"Kasia Kmiecik"},
-  "KldJ": {pin:"3797",name:"Klaudia Juskowiak"},
-  "KlyL": {pin:"4960",name:"Klymenko Liliia"},
-  "LenK": {pin:"5952",name:"Lena Klimek"},
-  "MajP": {pin:"1135",name:"Maja Przybył"},
-  "MarJ": {pin:"0603",name:"Maria Jarczyńska"},
-  "MarW": {pin:"9274",name:"Maria Wujek"},
-  "MriB": {pin:"9517",name:"Marianna Bręk"},
-  "MrtN": {pin:"3398",name:"Martyna Nogała"},
-  "MrtR": {pin:"5778",name:"Martyna Rudyńska"},
-  "MlgK": {pin:"8263",name:"Małgosia Krawczyk"},
-  "NikP": {pin:"6409",name:"Nikola Pierszchała"},
-  "PtrB": {pin:"7795",name:"Patryk Bagiński"},
-  "PtrP": {pin:"0854",name:"Patryk Pernak"},
-  "SndK": {pin:"0599",name:"Sandra Kowalska"},
-  "WikS": {pin:"6600",name:"Wiktoria Straburzyńska"},
-  "Oglądający": {pin:"9013",name:"Oglądający",spectator:true}
-};
 
 let currentUser = null;
 let currentGameCode = null;
@@ -162,8 +134,16 @@ const homeScreen = $("homeScreen");
 const loginLogo = $("loginLogo");
 const error = $("error");
 
-function safeKey(s) {
-  return s.replace(/[.#$\[\]\/]/g, "_");
+// Login is converted locally to a technical Firebase email.
+// No names, PINs or roles are stored in this public HTML.
+function authEmail(login) {
+  return login.toLowerCase().replace(/[^a-z0-9]/g, "") + "@lamiglowki.invalid";
+}
+
+// Firebase Email/Password requires a longer password than a 4-digit PIN.
+// The player still types only the PIN shown on the card.
+function authPassword(pin) {
+  return "LG-" + pin + "-26";
 }
 
 function renderLobby(players = {}) {
@@ -171,7 +151,10 @@ function renderLobby(players = {}) {
   list.innerHTML = "";
 
   const entries = Object.values(players);
-  entries.sort((a,b) => (a.spectator ? 1 : 0) - (b.spectator ? 1 : 0) || a.name.localeCompare(b.name,"pl"));
+  entries.sort((a,b) =>
+    (a.spectator ? 1 : 0) - (b.spectator ? 1 : 0) ||
+    (a.name || "").localeCompare(b.name || "", "pl")
+  );
 
   for (const p of entries) {
     const li = document.createElement("li");
@@ -180,7 +163,9 @@ function renderLobby(players = {}) {
     dot.style.background = "#22c55e";
 
     const name = document.createElement("span");
-    name.textContent = p.name + (p.host ? " — Prowadzący" : p.spectator ? " — Oglądający" : "");
+    name.textContent =
+      p.name +
+      (p.host ? " — Prowadzący" : p.spectator ? " — Oglądający" : "");
 
     li.append(dot, name);
     list.appendChild(li);
@@ -189,43 +174,40 @@ function renderLobby(players = {}) {
   const playing = entries.filter(p => !p.spectator).length;
   const spectators = entries.filter(p => p.spectator).length;
   $("lobbyTitle").textContent = `Lista graczy (${playing}/30)`;
-  $("lobbyStatus").textContent =
-    currentGameCode
-      ? `Kod Gry: ${currentGameCode}` + (spectators ? ` • Oglądający: ${spectators}` : "")
-      : "Nie dołączono do lobby";
+  $("lobbyStatus").textContent = currentGameCode
+    ? `Kod Gry: ${currentGameCode}` + (spectators ? ` • Oglądający: ${spectators}` : "")
+    : "Nie dołączono do lobby";
 }
 
 function listenToLobby(code) {
   currentGameCode = code;
   if (stopLobbyListener) stopLobbyListener();
 
-  const gameRef = ref(db, `games/${code}`);
-  stopLobbyListener = onValue(gameRef, snap => {
+  stopLobbyListener = onValue(ref(db, `games/${code}`), snap => {
     if (!snap.exists()) {
       $("lobbyStatus").textContent = "Ta gra już nie istnieje.";
       return;
     }
+
     const game = snap.val();
     renderLobby(game.players || {});
 
     if (game.status === "started") {
       $("lobbyStatus").textContent = `Kod Gry: ${code} • Gra rozpoczęta`;
-      // Tu później podłączymy ekran pierwszej rundy.
     }
   });
 }
 
 async function addCurrentUserToGame(code) {
-  const playerRef = ref(db, `games/${code}/players/${safeKey(currentUser.login)}`);
+  const playerRef = ref(db, `games/${code}/players/${auth.currentUser.uid}`);
   await set(playerRef, {
-    login: currentUser.login,
+    uid: auth.currentUser.uid,
     name: currentUser.name,
-    host: !!currentUser.host,
-    spectator: !!currentUser.spectator,
+    host: currentUser.role === "host",
+    spectator: currentUser.role === "spectator",
     joinedAt: Date.now()
   });
 
-  // Jeśli telefon zamknie stronę lub straci połączenie, osoba zniknie z lobby.
   try { await onDisconnect(playerRef).remove(); } catch (_) {}
 }
 
@@ -238,48 +220,80 @@ async function makeUniqueCode() {
   throw new Error("Nie udało się wygenerować wolnego kodu.");
 }
 
-$("loginForm").addEventListener("submit", e => {
+$("loginForm").addEventListener("submit", async e => {
   e.preventDefault();
+  error.textContent = "";
+
   const login = $("login").value.trim();
   const pin = $("pin").value.trim();
-  const user = USERS[login];
 
-  if (!user || user.pin !== pin) {
-    error.textContent = "Nieprawidłowy login lub PIN.";
+  if (!/^\d{4}$/.test(pin)) {
+    error.textContent = "PIN musi mieć 4 cyfry.";
     return;
   }
 
-  currentUser = { login, ...user };
-  error.textContent = "";
-  loginLogo.classList.add("pop");
+  try {
+    const credential = await signInWithEmailAndPassword(
+      auth,
+      authEmail(login),
+      authPassword(pin)
+    );
 
-  setTimeout(() => {
-    loginScreen.style.display = "none";
-    homeScreen.style.display = "block";
-    document.body.style.overflow = "auto";
-    $("welcome").textContent = "Zalogowano jako: " + user.name;
-    if (user.host) $("hostCard").classList.remove("hidden");
-    renderLobby({});
-    window.scrollTo(0,0);
-  }, 430);
+    const profileSnap = await get(ref(db, `profiles/${credential.user.uid}`));
+    if (!profileSnap.exists()) {
+      await signOut(auth);
+      throw new Error("Brak profilu użytkownika.");
+    }
+
+    const profile = profileSnap.val();
+    currentUser = {
+      uid: credential.user.uid,
+      name: profile.name,
+      role: profile.role || "player"
+    };
+
+    loginLogo.classList.add("pop");
+
+    setTimeout(() => {
+      loginScreen.style.display = "none";
+      homeScreen.style.display = "block";
+      document.body.style.overflow = "auto";
+      $("welcome").textContent = "Zalogowano jako: " + currentUser.name;
+
+      if (currentUser.role === "host") {
+        $("hostCard").classList.remove("hidden");
+      } else {
+        $("hostCard").classList.add("hidden");
+      }
+
+      renderLobby({});
+      window.scrollTo(0, 0);
+    }, 430);
+
+  } catch (err) {
+    console.error(err);
+    error.textContent = "Nieprawidłowy login lub PIN.";
+  }
 });
 
 $("createGame").addEventListener("click", async () => {
-  if (!currentUser?.host) return;
+  if (currentUser?.role !== "host") return;
+
   const btn = $("createGame");
   btn.disabled = true;
   btn.textContent = "Tworzenie...";
 
   try {
     const code = await makeUniqueCode();
+
     await set(ref(db, `games/${code}`), {
       code,
       status: "lobby",
-      hostLogin: currentUser.login,
+      hostUid: auth.currentUser.uid,
       createdAt: Date.now()
     });
-    await addCurrentUserToGame(code);
 
+    await addCurrentUserToGame(code);
     currentGameCode = code;
     $("createdCode").textContent = code;
     $("createdGame").classList.remove("hidden");
@@ -287,7 +301,7 @@ $("createGame").addEventListener("click", async () => {
     listenToLobby(code);
   } catch (err) {
     console.error(err);
-    alert("Nie udało się utworzyć gry. Sprawdź połączenie z Firebase.");
+    alert("Nie udało się utworzyć gry.");
     btn.textContent = "Utwórz grę";
   } finally {
     btn.disabled = false;
@@ -295,7 +309,7 @@ $("createGame").addEventListener("click", async () => {
 });
 
 $("joinGame").addEventListener("click", async () => {
-  if (!currentUser) return;
+  if (!currentUser || !auth.currentUser) return;
 
   const code = $("gameCodeInput").value.trim();
   if (!/^\d{4}$/.test(code)) {
@@ -321,12 +335,12 @@ $("joinGame").addEventListener("click", async () => {
     $("gameCodeInput").value = "";
   } catch (err) {
     console.error(err);
-    alert("Nie udało się dołączyć. Sprawdź połączenie z Firebase.");
+    alert("Nie udało się dołączyć.");
   }
 });
 
 $("startGame").addEventListener("click", async () => {
-  if (!currentUser?.host || !currentGameCode) return;
+  if (currentUser?.role !== "host" || !currentGameCode) return;
 
   try {
     await update(ref(db, `games/${currentGameCode}`), {
