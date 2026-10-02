@@ -208,11 +208,38 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
   width:108px;
   height:108px;
   border-radius:50%;
-  object-fit:cover;
+  overflow:hidden;
   background:#27272a;
   border:3px solid #52525b;
   margin:12px auto;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+#avatarPreviewImage{
+  width:100%;
+  height:100%;
+  object-fit:cover;
   display:block;
+}
+#avatarPreviewFallback{
+  width:100%;
+  height:100%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color:#ddd;
+  font:900 34px monospace;
+}
+#noAvatarButton{
+  width:100%;
+  height:48px;
+  margin-top:10px;
+  background:#27272c;
+  color:#fff;
+  border:1px solid #4b4b52;
+  border-radius:10px;
+  font-size:15px;
 }
 #avatarModal video{
   width:100%;
@@ -583,12 +610,16 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
     <h2>Twoja postać</h2>
     <p>Zrób zdjęcie albo wybierz plik PNG/JPG.</p>
     <video id="camera" class="hidden" autoplay playsinline></video>
-    <img id="avatarPreview" alt="Avatar">
+    <div id="avatarPreview">
+      <img id="avatarPreviewImage" class="hidden" alt="">
+      <span id="avatarPreviewFallback">?</span>
+    </div>
     <input id="avatarFile" type="file" accept="image/png,image/jpeg" class="hidden">
     <div class="modalActions">
       <button id="takePhoto" class="hostButton">Zrób zdjęcie</button>
       <button id="chooseAvatar" class="hostButton">Wgraj plik</button>
     </div>
+    <button id="noAvatarButton">Zostań bez profilowego</button>
     <button id="saveAvatar" class="primary">Gotowe</button>
   </div>
 </div>
@@ -2233,6 +2264,33 @@ $("exitWord").addEventListener("keydown",e=>{
 });
 
 
+function renderAvatarPreview(){
+  const img=$("avatarPreviewImage");
+  const fallback=$("avatarPreviewFallback");
+  fallback.textContent=(currentUser?.name || "?").trim().charAt(0).toUpperCase() || "?";
+
+  if(avatarData){
+    img.onload=()=>{
+      img.classList.remove("hidden");
+      fallback.classList.add("hidden");
+    };
+    img.onerror=()=>{
+      img.classList.add("hidden");
+      fallback.classList.remove("hidden");
+    };
+    img.src=avatarData;
+
+    if(img.complete && img.naturalWidth){
+      img.classList.remove("hidden");
+      fallback.classList.add("hidden");
+    }
+  }else{
+    img.removeAttribute("src");
+    img.classList.add("hidden");
+    fallback.classList.remove("hidden");
+  }
+}
+
 async function ensureAvatar(){
   if(currentUser.role==="spectator"){
     avatarData=null;
@@ -2241,20 +2299,11 @@ async function ensureAvatar(){
   }
 
   loadSavedAvatar();
-
-  const preview=$("avatarPreview");
-  preview.classList.remove("hidden");
-
-  if(avatarData){
-    preview.src=avatarData;
-  }else{
-    preview.removeAttribute("src");
-  }
-
+  $("avatarPreview").classList.remove("hidden");
+  renderAvatarPreview();
   updateProfileCorner();
   $("avatarModal").classList.remove("hidden");
 }
-
 $("chooseAvatar").onclick=()=>$("avatarFile").click();
 
 $("avatarFile").onchange=e=>{
@@ -2274,7 +2323,7 @@ $("avatarFile").onchange=e=>{
       const sy=(source.height-side)/2;
       q.drawImage(source,sx,sy,side,side,0,0,128,128);
       avatarData=c.toDataURL("image/jpeg",.72);
-      $("avatarPreview").src=avatarData;
+      renderAvatarPreview();
     };
     source.src=rd.result;
   };
@@ -2304,8 +2353,8 @@ $("takePhoto").onclick=async()=>{
       q.drawImage(v,sx,sy,side,side,0,0,128,128);
 
       avatarData=c.toDataURL("image/jpeg",.72);
-      $("avatarPreview").src=avatarData;
       $("avatarPreview").classList.remove("hidden");
+      renderAvatarPreview();
       $("camera").classList.add("hidden");
 
       cameraStream.getTracks().forEach(t=>t.stop());
@@ -2315,6 +2364,36 @@ $("takePhoto").onclick=async()=>{
   }catch(e){
     alert("Nie udało się uruchomić aparatu. Możesz wgrać plik.");
   }
+};
+
+$("noAvatarButton").onclick=async()=>{
+  if(cameraStream){
+    cameraStream.getTracks().forEach(t=>t.stop());
+    cameraStream=null;
+    $("camera").classList.add("hidden");
+    $("takePhoto").textContent="Zrób zdjęcie";
+  }
+
+  avatarData=null;
+
+  try{
+    localStorage.removeItem(avatarStorageKey());
+  }catch(_){}
+
+  renderAvatarPreview();
+  updateProfileCorner();
+
+  if(currentGameCode && auth.currentUser){
+    try{
+      await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
+        avatar:null
+      });
+    }catch(err){
+      console.error(err);
+    }
+  }
+
+  $("avatarModal").classList.add("hidden");
 };
 
 $("saveAvatar").onclick=async()=>{
@@ -2363,20 +2442,15 @@ $("profileChange").addEventListener("click",()=>{
   $("profileMenu").classList.add("hidden");
   $("avatarFile").value="";
 
-  if(avatarData){
-    $("avatarPreview").src=avatarData;
-    $("avatarPreview").classList.remove("hidden");
-  }else{
-    $("avatarPreview").removeAttribute("src");
-  }
-
+  $("avatarPreview").classList.remove("hidden");
+  renderAvatarPreview();
   $("avatarModal").classList.remove("hidden");
 });
 
 $("profileRemove").addEventListener("click",async()=>{
   try{ localStorage.removeItem(avatarStorageKey()); }catch(_){}
   avatarData=null;
-  $("avatarPreview").removeAttribute("src");
+  renderAvatarPreview();
   updateProfileCorner();
 
   if(currentGameCode && auth.currentUser){
