@@ -956,37 +956,76 @@ function generateMaze(seed){
 
 function pickLetterCells(rnd,count){
   const candidates=[];
+
   for(let y=1;y<ROWS-1;y++){
     for(let x=1;x<COLS-1;x++){
       if(maze[y][x]!==0) continue;
+
       const fromStart=Math.abs(x-START_X)+Math.abs(y-START_Y);
       const fromExit=Math.abs(x-exitCell.x)+Math.abs(y-exitCell.y);
-      if(fromStart<7 || fromExit<3) continue;
-      candidates.push({x,y,score:fromStart+rnd()*5});
+
+      // Keep notes away from the spawn room and the exit itself.
+      if(fromStart<8 || fromExit<5) continue;
+
+      candidates.push({
+        x,
+        y,
+        score:fromStart + rnd()*8
+      });
     }
   }
 
+  // Randomize candidates first, then prefer places farther from spawn.
+  for(let i=candidates.length-1;i>0;i--){
+    const j=Math.floor(rnd()*(i+1));
+    [candidates[i],candidates[j]]=[candidates[j],candidates[i]];
+  }
   candidates.sort((a,b)=>b.score-a.score);
+
   const picked=[];
 
+  // Notes must be clearly separated visually.
+  // 8 blocks means two notes cannot appear in the same small corridor area.
+  const MIN_DISTANCE=8;
+
   for(const c of candidates){
-    if(picked.every(p=>Math.abs(p.x-c.x)+Math.abs(p.y-c.y)>=5)){
+    const farEnough=picked.every(p=>{
+      const dx=p.x-c.x;
+      const dy=p.y-c.y;
+      return Math.hypot(dx,dy)>=MIN_DISTANCE;
+    });
+
+    if(farEnough){
       picked.push({x:c.x,y:c.y});
       if(picked.length===count) break;
     }
   }
 
-  // Fallback for unusually short/compact generations.
-  for(const c of candidates){
-    if(picked.length===count) break;
-    if(!picked.some(p=>p.x===c.x&&p.y===c.y)) picked.push({x:c.x,y:c.y});
+  // Very rare fallback for difficult generations:
+  // still keep at least 6 blocks between notes instead of placing them together.
+  if(picked.length<count){
+    const FALLBACK_DISTANCE=6;
+
+    for(const c of candidates){
+      if(picked.length===count) break;
+      if(picked.some(p=>p.x===c.x && p.y===c.y)) continue;
+
+      const farEnough=picked.every(p=>{
+        const dx=p.x-c.x;
+        const dy=p.y-c.y;
+        return Math.hypot(dx,dy)>=FALLBACK_DISTANCE;
+      });
+
+      if(farEnough) picked.push({x:c.x,y:c.y});
+    }
   }
 
-  // Shuffle so the letters themselves are not ordered spatially.
+  // Shuffle assignment, so letter 1, 2, 3... are not arranged spatially.
   for(let i=picked.length-1;i>0;i--){
     const j=Math.floor(rnd()*(i+1));
     [picked[i],picked[j]]=[picked[j],picked[i]];
   }
+
   return picked.slice(0,count);
 }
 
