@@ -878,21 +878,25 @@ const L2_TORCHES = [
 
 const L3_W = 20;
 const L3_H = 14;
-const L3_PLAYER_W = .72;
-const L3_PLAYER_H = .96;
+const L3_PLAYER_W = .62;
+const L3_PLAYER_H = .9;
 const L3_MOVE_SPEED = 2.35;
-const L3_GRAVITY = 21;
-const L3_JUMP_SPEED = 8.6;
-const L3_GHOST = {x:2.15,y:3.15};
-const L3_WINDOW = {x:5.15,y:1.05,w:7.7,h:4.15};
-const L3_ENTRY_DOOR = {x:.08,floorY:12.4,w:.9};
-const L3_EXIT_DOOR = {x:18.72,floorY:8.3,w:.9};
-const L3_EXIT_TORCH = {x:17.45,y:7.95};
-const L3_RESPAWN = {x:1.55,y:12.4};
-const L3_COLLISION_STEP = .055;
-const L3_EXIT_LIGHT_RADIUS = L2_TORCH_RADIUS;
-const L3_GHOST_LIGHT_RADIUS = 2.15;
-const L3_GHOST_LIGHT_POWER = 0.42;
+const L3_ACCEL = 13;
+const L3_GRAVITY = 21.5;
+const L3_MAX_FALL = 13.5;
+const L3_JUMP_SPEED = 7.8;
+const L3_COYOTE_MS = 105;
+const L3_JUMP_BUFFER_MS = 135;
+const L3_GHOST = {x:2.25,y:3.35};
+const L3_WINDOW = {x:4.55,y:1.05,w:7.75,h:4.25};
+const L3_ENTRY_DOOR = {x:.15,floorY:12.25,w:.88};
+const L3_EXIT_DOOR = {x:18.72,floorY:7.55,w:.88};
+const L3_EXIT_TORCH = {x:17.55,y:6.55};
+const L3_RESPAWN = {x:1.55,y:12.25};
+const L3_GHOST_LIGHT_RADIUS = 2.05;
+const L3_GHOST_LIGHT_CORE = .65;
+const L3_GHOST_LIGHT_POWER = .34;
+const L3_FALL_RESPAWN_Y = 14.2;
 
 
 let maze = null;
@@ -949,9 +953,11 @@ let level2LastMoveFrame = 0;
 let level2ExitScreenRect = null;
 let level3Vel = {x:0,y:0};
 let level3OnGround = false;
+let level3GroundId = "";
+let level3LastGroundAt = 0;
+let level3JumpQueuedAt = 0;
 let level3LastMoveFrame = 0;
-let level3PrevMovingY = 10.35;
-let level3StandOnMoving = false;
+let level3PrevMovingY = 9.4;
 let level3NextFlashAt = 0;
 let level3FlashUntil = 0;
 let level3ExitScreenRect = null;
@@ -3462,136 +3468,236 @@ function drownLevel2(){
 
 
 function level3MovingPlatformY(now=performance.now()){
-  return 9.35 + Math.sin(now/850)*.82;
+  return 9.35 + Math.sin(now/900)*.78;
 }
 
-function level3StaticSolids(){
+function level3StaticPlatforms(){
   return [
-    {x:-1,y:-1,w:1,h:L3_H+2},
-    {x:L3_W,y:-1,w:1,h:L3_H+2},
-    {x:0,y:-1,w:L3_W,h:1},
-    {x:15.6,y:8.3,w:4.4,h:5.7},
-    {x:9.3,y:10.15,w:2.25,h:.46},
-    {x:6.55,y:10.9,w:1.9,h:.46},
-    {x:3.95,y:11.65,w:1.8,h:.46},
-    {x:0,y:12.4,w:3.25,h:1.6}
+    {id:"entry",x:0,y:12.25,w:3.05,h:1.75,kind:"dirt",solid:true},
+    {id:"step1",x:3.85,y:11.25,w:1.7,h:.52,kind:"stone",oneWay:true},
+    {id:"step2",x:6.75,y:10.25,w:1.75,h:.52,kind:"stone",oneWay:true},
+    {id:"step4",x:12.65,y:8.55,w:1.85,h:.52,kind:"stone",oneWay:true},
+    {id:"exit",x:15.55,y:7.55,w:4.45,h:6.45,kind:"stone",solid:true}
   ];
 }
 
 function level3MovingPlatform(now=performance.now()){
-  return {x:12.35,y:level3MovingPlatformY(now),w:2.2,h:.46,moving:true};
-}
-
-function level3AllSolids(now=performance.now()){
-  return [...level3StaticSolids(),level3MovingPlatform(now)];
-}
-
-function level3PlayerRect(x=localPos.x,y=localPos.y){
   return {
-    x:x-L3_PLAYER_W/2,
-    y:y-L3_PLAYER_H,
-    w:L3_PLAYER_W,
-    h:L3_PLAYER_H
+    id:"moving",
+    x:9.65,
+    y:level3MovingPlatformY(now),
+    w:1.9,
+    h:.52,
+    kind:"stone",
+    oneWay:true,
+    moving:true
   };
 }
 
-function level3RectsOverlap(a,b){
-  return (
-    a.x < b.x+b.w &&
-    a.x+a.w > b.x &&
-    a.y < b.y+b.h &&
-    a.y+a.h > b.y
+function level3Platforms(now=performance.now()){
+  return [...level3StaticPlatforms(),level3MovingPlatform(now)];
+}
+
+function level3PlayerRectAt(x=localPos.x,y=localPos.y){
+  return {
+    left:x-L3_PLAYER_W/2,
+    right:x+L3_PLAYER_W/2,
+    top:y-L3_PLAYER_H,
+    bottom:y
+  };
+}
+
+function level3HorizontalOverlap(left,right,p){
+  return right>p.x+.035 && left<p.x+p.w-.035;
+}
+
+function level3VerticalOverlap(top,bottom,p){
+  return bottom>p.y+.035 && top<p.y+p.h-.035;
+}
+
+function level3SolidBodies(){
+  return level3StaticPlatforms().filter(p=>p.solid);
+}
+
+function level3MoveX(amount){
+  if(!amount) return;
+
+  let nx=localPos.x+amount;
+  const old=level3PlayerRectAt(localPos.x,localPos.y);
+  let next=level3PlayerRectAt(nx,localPos.y);
+
+  for(const p of level3SolidBodies()){
+    if(!level3VerticalOverlap(next.top,next.bottom,p)) continue;
+    if(!level3HorizontalOverlap(next.left,next.right,p)) continue;
+
+    if(amount>0 && old.right<=p.x+.08){
+      nx=p.x-L3_PLAYER_W/2;
+    }else if(amount<0 && old.left>=p.x+p.w-.08){
+      nx=p.x+p.w+L3_PLAYER_W/2;
+    }
+
+    next=level3PlayerRectAt(nx,localPos.y);
+    level3Vel.x=0;
+  }
+
+  localPos.x=Math.max(
+    L3_PLAYER_W/2+.02,
+    Math.min(L3_W-L3_PLAYER_W/2-.02,nx)
   );
 }
 
-function level3MoveHorizontal(amount,now){
-  if(!amount) return;
+function level3LandOnPlatforms(oldY,nextY,now){
+  const left=localPos.x-L3_PLAYER_W/2+.05;
+  const right=localPos.x+L3_PLAYER_W/2-.05;
+  let best=null;
 
-  const steps=Math.max(1,Math.ceil(Math.abs(amount)/L3_COLLISION_STEP));
-  const step=amount/steps;
+  for(const p of level3Platforms(now)){
+    if(!level3HorizontalOverlap(left,right,p)) continue;
+    if(oldY>p.y+.09) continue;
+    if(nextY<p.y-.01) continue;
 
-  for(let i=0;i<steps;i++){
-    localPos.x+=step;
-    const rect=level3PlayerRect();
-
-    for(const solid of level3AllSolids(now)){
-      if(!level3RectsOverlap(rect,solid)) continue;
-
-      if(step>0){
-        localPos.x=solid.x-L3_PLAYER_W/2;
-      }else{
-        localPos.x=solid.x+solid.w+L3_PLAYER_W/2;
-      }
-
-      level3Vel.x=0;
-      break;
+    if(!best || p.y<best.y){
+      best=p;
     }
   }
+
+  if(best){
+    localPos.y=best.y;
+    level3Vel.y=0;
+    level3OnGround=true;
+    level3GroundId=best.id;
+    level3LastGroundAt=now;
+    return true;
+  }
+
+  return false;
 }
 
-function level3MoveVertical(amount,now){
-  if(!amount) return;
+function level3CheckCeiling(nextY){
+  const minFeet=1+L3_PLAYER_H+.06;
 
-  const steps=Math.max(1,Math.ceil(Math.abs(amount)/L3_COLLISION_STEP));
-  const step=amount/steps;
-
-  for(let i=0;i<steps;i++){
-    localPos.y+=step;
-    const rect=level3PlayerRect();
-
-    for(const solid of level3AllSolids(now)){
-      if(!level3RectsOverlap(rect,solid)) continue;
-
-      if(step>0){
-        localPos.y=solid.y;
-        level3OnGround=true;
-        level3StandOnMoving=!!solid.moving;
-      }else{
-        localPos.y=solid.y+solid.h+L3_PLAYER_H;
-      }
-
-      level3Vel.y=0;
-      break;
-    }
+  if(nextY<minFeet){
+    localPos.y=minFeet;
+    level3Vel.y=0;
+    return true;
   }
+
+  return false;
 }
 
 function level3ProbeGround(now){
-  const rect=level3PlayerRect(localPos.x,localPos.y+.045);
+  if(level3Vel.y<0){
+    level3OnGround=false;
+    level3GroundId="";
+    return;
+  }
 
-  for(const solid of level3AllSolids(now)){
-    if(!level3RectsOverlap(rect,solid)) continue;
+  const left=localPos.x-L3_PLAYER_W/2+.06;
+  const right=localPos.x+L3_PLAYER_W/2-.06;
+  let grounded=null;
 
-    if(localPos.y>=solid.y-.08 && localPos.y<=solid.y+.12){
-      level3OnGround=true;
-      level3StandOnMoving=!!solid.moving;
-      return;
+  for(const p of level3Platforms(now)){
+    if(!level3HorizontalOverlap(left,right,p)) continue;
+    if(Math.abs(localPos.y-p.y)>.075) continue;
+
+    if(!grounded || p.y<grounded.y){
+      grounded=p;
     }
   }
 
+  if(grounded){
+    localPos.y=grounded.y;
+    level3OnGround=true;
+    level3GroundId=grounded.id;
+    level3LastGroundAt=now;
+  }else{
+    level3OnGround=false;
+    level3GroundId="";
+  }
+}
+
+function level3RequestJump(){
+  if(
+    currentLevel!==3 ||
+    currentUser?.role==="spectator" ||
+    playerFinished
+  ) return;
+
+  level3JumpQueuedAt=performance.now();
+}
+
+function startLevel3Jump(){
+  level3RequestJump();
+}
+
+function level3TryConsumeJump(now){
+  if(!level3JumpQueuedAt) return;
+  if(now-level3JumpQueuedAt>L3_JUMP_BUFFER_MS){
+    level3JumpQueuedAt=0;
+    return;
+  }
+
+  const canJump=level3OnGround || now-level3LastGroundAt<=L3_COYOTE_MS;
+
+  if(!canJump) return;
+
+  level3Vel.y=-L3_JUMP_SPEED;
   level3OnGround=false;
-  level3StandOnMoving=false;
+  level3GroundId="";
+  level3JumpQueuedAt=0;
+}
+
+function level3Respawn(){
+  localPos={x:L3_RESPAWN.x,y:L3_RESPAWN.y};
+  spectatorPos={...localPos};
+  level3Vel={x:0,y:0};
+  level3OnGround=true;
+  level3GroundId="entry";
+  level3LastGroundAt=performance.now();
+  level3JumpQueuedAt=0;
+  level3PrevMovingY=level3MovingPlatformY();
 }
 
 function level3MaybeFlash(now=performance.now()){
   if(now>=level3NextFlashAt){
-    level3FlashUntil=now+160+Math.random()*150;
-    level3NextFlashAt=now+3200+Math.random()*4700;
+    level3FlashUntil=now+125+Math.random()*95;
+    level3NextFlashAt=now+3400+Math.random()*4700;
   }
 
   if(now>=level3FlashUntil) return 0;
-  return Math.max(0,Math.min(1,(level3FlashUntil-now)/230));
+  return Math.max(0,Math.min(1,(level3FlashUntil-now)/180));
 }
 
-function level3GhostPath(now=performance.now()){
-  const t=now/900;
+function level3GhostPosition(now=performance.now()){
+  const t=now/950;
   return {
-    x:L3_GHOST.x+Math.sin(t)*.16,
-    y:L3_GHOST.y+Math.cos(t*1.18)*.13
+    x:L3_GHOST.x+Math.sin(t)*.11,
+    y:L3_GHOST.y+Math.cos(t*1.15)*.1
   };
 }
 
-function level3AddLight(map,sx,sy,radius,power=1){
+function level3AddPlayerLight(map,sx,sy,radius){
+  const minX=Math.max(0,Math.floor(sx-radius));
+  const maxX=Math.min(L3_W-1,Math.ceil(sx+radius));
+  const minY=Math.max(0,Math.floor(sy-radius));
+  const maxY=Math.min(L3_H-1,Math.ceil(sy+radius));
+
+  for(let y=minY;y<=maxY;y++){
+    for(let x=minX;x<=maxX;x++){
+      const dx=(x+.5)-sx;
+      const dy=(y+.5)-sy;
+      const d=Math.hypot(dx,dy);
+
+      if(d>radius) continue;
+
+      const t=Math.max(0,1-d/radius);
+      const fade=t*t*(3-2*t);
+      map[y][x]=Math.max(map[y][x],fade);
+    }
+  }
+}
+
+function level3AddTorchLight(map,sx,sy,radius,core,power){
   const minX=Math.max(0,Math.floor(sx-radius));
   const maxX=Math.min(L3_W-1,Math.ceil(sx+radius));
   const minY=Math.max(0,Math.floor(sy-radius));
@@ -3607,10 +3713,10 @@ function level3AddLight(map,sx,sy,radius,power=1){
 
       let strength;
 
-      if(d<=1){
+      if(d<=core){
         strength=power;
       }else{
-        const t=Math.max(0,1-(d-1)/(radius-1));
+        const t=Math.max(0,1-(d-core)/(radius-core));
         const fade=t*t*(3-2*t);
         strength=fade*power;
       }
@@ -3621,15 +3727,16 @@ function level3AddLight(map,sx,sy,radius,power=1){
 }
 
 function buildLevel3LightMaps(now=performance.now()){
+  const base=Array.from({length:L3_H},()=>Array(L3_W).fill(0));
   const warm=Array.from({length:L3_H},()=>Array(L3_W).fill(0));
   const red=Array.from({length:L3_H},()=>Array(L3_W).fill(0));
   const blue=Array.from({length:L3_H},()=>Array(L3_W).fill(0));
 
-  if(currentUser?.role!=="spectator"){
-    level3AddLight(warm,localPos.x,localPos.y-.45,LIGHT_RADIUS,1);
+  if(currentUser?.role!=="spectator" && !playerFinished){
+    level3AddPlayerLight(base,localPos.x,localPos.y-.45,LIGHT_RADIUS);
   }
 
-  for(const p of Object.values(remotePlayers)){
+  for(const [uid,p] of Object.entries(remotePlayers)){
     if(
       p.spectator ||
       p.level!==3 ||
@@ -3638,336 +3745,261 @@ function buildLevel3LightMaps(now=performance.now()){
       p.y==null
     ) continue;
 
-    if(
-      p.uid===auth.currentUser?.uid &&
-      currentUser?.role!=="spectator"
-    ) continue;
+    if(uid===auth.currentUser?.uid && currentUser?.role!=="spectator") continue;
 
-    level3AddLight(warm,+p.x,+p.y-.45,LIGHT_RADIUS,1);
+    level3AddPlayerLight(base,+p.x,+p.y-.45,LIGHT_RADIUS);
   }
 
-  level3AddLight(
+  level3AddTorchLight(
     warm,
     L3_EXIT_TORCH.x,
-    L3_EXIT_TORCH.y-.2,
-    L3_EXIT_LIGHT_RADIUS,
+    L3_EXIT_TORCH.y,
+    L2_TORCH_RADIUS,
+    L2_TORCH_CORE_RADIUS,
     L2_TORCH_POWER
   );
 
-  const ghost=level3GhostPath(now);
+  const ghost=level3GhostPosition(now);
 
-  level3AddLight(
+  level3AddTorchLight(
     red,
     ghost.x,
     ghost.y,
     L3_GHOST_LIGHT_RADIUS,
+    L3_GHOST_LIGHT_CORE,
     L3_GHOST_LIGHT_POWER
   );
 
   const flash=level3MaybeFlash(now);
 
   if(flash>0){
-    level3AddLight(
+    level3AddTorchLight(
       blue,
       L3_WINDOW.x+L3_WINDOW.w*.5,
       L3_WINDOW.y+L3_WINDOW.h*.55,
-      6.5,
-      Math.min(1,.25+flash*.75)
+      4.4,
+      .75,
+      .22+flash*.48
     );
   }
 
-  return {warm,red,blue,flash};
+  return {base,warm,red,blue,flash};
 }
 
 function level3LightAt(maps,x,y){
+  const base=maps.base?.[y]?.[x]||0;
   const warm=maps.warm?.[y]?.[x]||0;
   const red=maps.red?.[y]?.[x]||0;
   const blue=maps.blue?.[y]?.[x]||0;
 
   return {
+    base,
     warm,
     red,
     blue,
-    total:Math.max(warm,red,blue)
+    total:Math.max(base,warm,red,blue)
   };
 }
 
-function level3ApplyTileLighting(x,y,tile,ox,oy,maps){
-  const light=level3LightAt(maps,x,y);
-  const px=ox+x*tile;
-  const py=oy+y*tile;
-
-  if(light.total<=0){
-    ctx.fillStyle="#000";
-    ctx.fillRect(px,py,tile+1,tile+1);
-    return;
-  }
-
-  const darkness=Math.max(0,.84-light.total*.84);
-
-  if(darkness>0){
-    ctx.fillStyle=`rgba(0,0,0,${darkness})`;
-    ctx.fillRect(px,py,tile+1,tile+1);
-  }
-
-  if(light.warm>0){
-    ctx.fillStyle=`rgba(255,183,72,${light.warm*.13})`;
-    ctx.fillRect(px,py,tile+1,tile+1);
-  }
-
-  if(light.red>0){
-    ctx.fillStyle=`rgba(255,45,45,${light.red*.22})`;
-    ctx.fillRect(px,py,tile+1,tile+1);
-  }
-
-  if(light.blue>0){
-    ctx.fillStyle=`rgba(170,210,255,${light.blue*.19})`;
-    ctx.fillRect(px,py,tile+1,tile+1);
-  }
-}
-
-function level3SceneRect(cameraX,cameraY,tile){
-  let ox=innerWidth/2-cameraX*tile;
-  let oy=innerHeight/2-cameraY*tile;
-  const minOx=innerWidth-L3_W*tile;
-  const minOy=innerHeight-L3_H*tile;
-
-  ox=Math.min(0,Math.max(minOx,ox));
-  oy=Math.min(0,Math.max(minOy,oy));
-
-  if(L3_W*tile<innerWidth) ox=(innerWidth-L3_W*tile)/2;
-  if(L3_H*tile<innerHeight) oy=(innerHeight-L3_H*tile)/2;
-
-  return {ox,oy};
-}
-
-function level3DrawTileImage(img,x,y,size){
+function level3DrawTextureTile(img,x,y,size){
   if(img.complete && img.naturalWidth){
     ctx.drawImage(img,x,y,size,size);
   }else{
-    ctx.fillStyle="#555";
+    ctx.fillStyle="#686860";
     ctx.fillRect(x,y,size,size);
   }
 }
 
-function level3DrawPlatformRect(rect,tile,ox,oy){
-  const px=ox+rect.x*tile;
-  const py=oy+rect.y*tile;
-  const width=rect.w*tile;
-  const totalH=Math.max(tile*.34,rect.h*tile);
-  const topH=Math.min(tile*.17,totalH*.42);
-  const frontH=Math.max(tile*.17,totalH-topH);
-  const tileCount=Math.ceil(rect.w)+1;
+function level3DrawBackground(tile,ox,oy){
+  for(let y=0;y<L3_H;y++){
+    for(let x=0;x<L3_W;x++){
+      const mossy=((x*17+y*11)%29===0)||((x*7+y*13)%41===0);
+      const img=mossy ? tex.moss : tex.wall;
+      const px=ox+x*tile;
+      const py=oy+y*tile;
 
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(px,py,width,topH);
-  ctx.clip();
+      level3DrawTextureTile(img,px,py,tile);
 
-  for(let i=0;i<tileCount;i++){
-    const img=((Math.floor(rect.x)+i+Math.floor(rect.y))%8===0) ? tex.moss : tex.wall;
-    const dx=px+i*tile;
-    if(img.complete && img.naturalWidth){
-      ctx.drawImage(img,dx,py,tile,tile);
-    }else{
-      ctx.fillStyle="#68685f";
-      ctx.fillRect(dx,py,tile,tile);
-    }
-  }
-  ctx.restore();
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(px,py+topH,width,frontH);
-  ctx.clip();
-
-  for(let i=0;i<tileCount;i++){
-    const img=((Math.floor(rect.x)+i+Math.floor(rect.y)+3)%9===0) ? tex.moss : tex.wall;
-    const dx=px+i*tile;
-    if(img.complete && img.naturalWidth){
-      ctx.drawImage(img,dx,py+topH,tile,frontH);
-    }else{
-      ctx.fillStyle="#54544d";
-      ctx.fillRect(dx,py+topH,tile,frontH);
+      ctx.fillStyle="rgba(0,0,0,.34)";
+      ctx.fillRect(px,py,tile+1,tile+1);
     }
   }
 
-  ctx.fillStyle="rgba(0,0,0,.35)";
-  ctx.fillRect(px,py+topH,width,frontH);
-  ctx.restore();
+  const floorY=13.25;
+  const start=Math.floor(floorY);
 
-  ctx.fillStyle="rgba(255,255,255,.11)";
-  ctx.fillRect(px,py,width,Math.max(1,tile*.025));
-
-  ctx.fillStyle="rgba(0,0,0,.5)";
-  ctx.fillRect(px,py+topH+frontH-Math.max(1,tile*.035),width,Math.max(1,tile*.035));
-
-  const sideW=Math.max(2,tile*.08);
-  ctx.fillStyle="rgba(0,0,0,.28)";
-  ctx.beginPath();
-  ctx.moveTo(px+width,py);
-  ctx.lineTo(px+width+sideW,py+topH*.52);
-  ctx.lineTo(px+width+sideW,py+topH+frontH);
-  ctx.lineTo(px+width,py+topH+frontH);
-  ctx.closePath();
-  ctx.fill();
+  for(let x=0;x<L3_W;x++){
+    const px=ox+x*tile;
+    const py=oy+start*tile;
+    level3DrawTextureTile(tex.dirt,px,py,tile);
+    ctx.fillStyle="rgba(0,0,0,.48)";
+    ctx.fillRect(px,py,tile+1,tile+1);
+  }
 }
 
-function level3RenderDoor(rect,tile,ox,oy,exit=false){
-  const w=rect.w*tile;
+function level3DrawPlatformBody(p,tile,ox,oy){
+  const px=ox+p.x*tile;
+  const py=oy+p.y*tile;
+  const w=p.w*tile;
+  const h=Math.max(p.h*tile,tile*.44);
+  const topDepth=Math.min(tile*.14,h*.32);
+  const frontTop=py+topDepth;
+  const img=p.kind==="dirt" ? tex.dirt : tex.wall;
+  const alt=p.kind==="dirt" ? tex.dirt : tex.moss;
+  const countX=Math.ceil(p.w)+1;
+  const countY=Math.ceil(h/tile)+1;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(px,py);
+  ctx.lineTo(px+w,py);
+  ctx.lineTo(px+w+tile*.09,py+topDepth);
+  ctx.lineTo(px+tile*.09,py+topDepth);
+  ctx.closePath();
+  ctx.clip();
+
+  for(let i=0;i<countX;i++){
+    const useAlt=p.kind!=="dirt" && ((Math.floor(p.x)+i+Math.floor(p.y))%7===0);
+    level3DrawTextureTile(useAlt?alt:img,px+i*tile,py-tile*.2,tile);
+  }
+
+  ctx.fillStyle="rgba(255,255,255,.08)";
+  ctx.fillRect(px,py,w+tile*.1,Math.max(1,tile*.025));
+  ctx.restore();
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(px,frontTop,w,h-topDepth);
+  ctx.clip();
+
+  for(let yy=0;yy<countY;yy++){
+    for(let xx=0;xx<countX;xx++){
+      const useAlt=p.kind!=="dirt" && ((xx+yy+Math.floor(p.x))%11===0);
+      level3DrawTextureTile(
+        useAlt?alt:img,
+        px+xx*tile,
+        frontTop+yy*tile,
+        tile
+      );
+    }
+  }
+
+  ctx.fillStyle="rgba(0,0,0,.22)";
+  ctx.fillRect(px,frontTop,w,h-topDepth);
+  ctx.restore();
+
+  ctx.fillStyle="rgba(0,0,0,.38)";
+  ctx.beginPath();
+  ctx.moveTo(px+w,py);
+  ctx.lineTo(px+w+tile*.09,py+topDepth);
+  ctx.lineTo(px+w+tile*.09,py+h);
+  ctx.lineTo(px+w,py+h);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle="rgba(0,0,0,.42)";
+  ctx.fillRect(px,py+h-Math.max(1,tile*.04),w,Math.max(1,tile*.04));
+}
+
+function level3DoorScreenRect(door,tile,ox,oy){
+  const w=door.w*tile;
   const h=w*(168/128);
-  const x=ox+rect.x*tile;
-  const y=oy+rect.floorY*tile-h;
+  const x=ox+door.x*tile;
+  const y=oy+door.floorY*tile-h;
+  return {x,y,w,h};
+}
+
+function level3DrawDoor(door,tile,ox,oy,exit=false){
+  const r=level3DoorScreenRect(door,tile,ox,oy);
 
   if(exit){
-    level3ExitScreenRect={x,y,w,h};
+    level3ExitScreenRect=r;
   }
 
   const img=exit ? tex.doorUnlocked : tex.door;
 
   ctx.save();
   ctx.fillStyle="#17110d";
-  ctx.fillRect(x,y,w,h);
+  ctx.fillRect(r.x,r.y,r.w,r.h);
 
   if(img.complete && img.naturalWidth){
-    ctx.drawImage(img,x,y,w,h);
+    ctx.drawImage(img,r.x,r.y,r.w,r.h);
   }else{
-    ctx.fillStyle=exit ? "#ddb84a" : "#7a512f";
-    ctx.fillRect(x,y,w,h);
+    ctx.fillStyle=exit ? "#d7b63f" : "#755033";
+    ctx.fillRect(r.x,r.y,r.w,r.h);
   }
 
   ctx.restore();
 }
 
-function level3DrawAnimatedTorch(x,y,tile,ox,oy){
-  if(!tex.torch.complete || !tex.torch.naturalWidth) return;
-
-  const img=tex.torch;
-  const now=Date.now();
-  let frameSize;
-  let frames;
-  let sx=0;
-  let sy=0;
-
-  if(img.naturalHeight>=img.naturalWidth){
-    frameSize=img.naturalWidth;
-    frames=Math.max(1,Math.floor(img.naturalHeight/frameSize));
-    sy=(Math.floor(now/110)%frames)*frameSize;
-  }else{
-    frameSize=img.naturalHeight;
-    frames=Math.max(1,Math.floor(img.naturalWidth/frameSize));
-    sx=(Math.floor(now/110)%frames)*frameSize;
-  }
-
-  const size=tile*.48;
-  const px=ox+x*tile-size/2;
-  const py=oy+y*tile-size;
-
-  ctx.save();
-  ctx.drawImage(img,sx,sy,frameSize,frameSize,px,py,size,size);
-  ctx.restore();
-}
-
-function level3DrawGhost(tile,ox,oy,now=performance.now()){
-  const g=level3GhostPath(now);
-  const x=ox+g.x*tile;
-  const y=oy+g.y*tile;
-
-  if(!tex.redGhost.complete || !tex.redGhost.naturalWidth){
-    ctx.fillStyle="rgba(255,65,65,.9)";
-    ctx.beginPath();
-    ctx.arc(x,y,tile*.36,0,Math.PI*2);
-    ctx.fill();
-    return;
-  }
-
-  const frameW=48;
-  const frameH=48;
-  const frames=4;
-  const frame=Math.floor(Date.now()/115)%frames;
-  const sx=0;
-  const sy=frame*frameH;
-  const size=tile*.92;
-
-  ctx.drawImage(
-    tex.redGhost,
-    sx,
-    sy,
-    frameW,
-    frameH,
-    x-size/2,
-    y-size/2,
-    size,
-    size
-  );
-}
-
-function drawLevel3Window(tile,ox,oy,maps){
+function level3DrawWindow(tile,ox,oy,maps){
   const wx=ox+L3_WINDOW.x*tile;
   const wy=oy+L3_WINDOW.y*tile;
   const ww=L3_WINDOW.w*tile;
   const wh=L3_WINDOW.h*tile;
-  const frame=Math.max(4,tile*.13);
-  const divider=Math.max(3,tile*.09);
+  const frame=Math.max(4,tile*.12);
+  const divider=Math.max(3,tile*.085);
   const ix=wx+frame;
   const iy=wy+frame;
   const iw=ww-frame*2;
   const ih=wh-frame*2;
+  const flash=maps.flash;
 
   ctx.save();
-  ctx.fillStyle="#252822";
+  ctx.fillStyle="#535447";
   ctx.fillRect(wx,wy,ww,wh);
 
-  ctx.save();
   ctx.beginPath();
   ctx.rect(ix,iy,iw,ih);
   ctx.clip();
 
   const sky=ctx.createLinearGradient(ix,iy,ix,iy+ih);
-  sky.addColorStop(0,maps.flash>.03 ? "#bcd5ef" : "#35475d");
-  sky.addColorStop(.58,maps.flash>.03 ? "#8eabc8" : "#243448");
-  sky.addColorStop(1,"#101824");
+  sky.addColorStop(0,flash>.03 ? "#d8e8f8" : "#263446");
+  sky.addColorStop(.55,flash>.03 ? "#9fb9d1" : "#182434");
+  sky.addColorStop(1,"#0b111b");
   ctx.fillStyle=sky;
   ctx.fillRect(ix,iy,iw,ih);
 
-  const rainShift=(Date.now()/18)%(tile*.46);
-  ctx.lineWidth=Math.max(1,tile*.022);
-  ctx.strokeStyle=maps.flash>.03
-    ? "rgba(235,247,255,.68)"
-    : "rgba(151,190,224,.5)";
+  ctx.fillStyle=flash>.03 ? "rgba(195,211,226,.42)" : "rgba(9,14,22,.52)";
+  ctx.beginPath();
+  ctx.ellipse(ix+iw*.2,iy+ih*.22,iw*.25,ih*.14,0,0,Math.PI*2);
+  ctx.ellipse(ix+iw*.52,iy+ih*.17,iw*.31,ih*.16,0,0,Math.PI*2);
+  ctx.ellipse(ix+iw*.84,iy+ih*.24,iw*.27,ih*.15,0,0,Math.PI*2);
+  ctx.fill();
 
-  for(let x=ix-iw;x<ix+iw*2;x+=tile*.42){
-    const rx=x+rainShift;
-    for(let y=iy-tile;y<iy+ih+tile;y+=tile*.8){
+  const rainShift=(Date.now()/15)%tile;
+
+  for(let x=ix-tile;x<ix+iw+tile;x+=tile*.38){
+    for(let y=iy-tile;y<iy+ih+tile;y+=tile*.72){
+      const rx=x+rainShift*.27;
+      const ry=y+rainShift;
+      ctx.strokeStyle=flash>.03
+        ? "rgba(235,247,255,.72)"
+        : "rgba(153,194,229,.42)";
+      ctx.lineWidth=Math.max(1,tile*.022);
       ctx.beginPath();
-      ctx.moveTo(rx,y);
-      ctx.lineTo(rx-tile*.22,y+tile*.5);
+      ctx.moveTo(rx,ry);
+      ctx.lineTo(rx-tile*.18,ry+tile*.43);
       ctx.stroke();
     }
   }
 
-  if(maps.flash>.03){
+  if(flash>.03){
     ctx.strokeStyle="rgba(255,255,255,.98)";
     ctx.lineWidth=Math.max(2,tile*.055);
-    ctx.shadowColor="rgba(210,236,255,.95)";
-    ctx.shadowBlur=tile*.16;
+    ctx.shadowColor="rgba(215,237,255,.92)";
+    ctx.shadowBlur=tile*.18;
     ctx.beginPath();
     ctx.moveTo(ix+iw*.22,iy+ih*.04);
-    ctx.lineTo(ix+iw*.34,iy+ih*.32);
-    ctx.lineTo(ix+iw*.29,iy+ih*.32);
-    ctx.lineTo(ix+iw*.44,iy+ih*.68);
+    ctx.lineTo(ix+iw*.35,iy+ih*.31);
+    ctx.lineTo(ix+iw*.3,iy+ih*.31);
+    ctx.lineTo(ix+iw*.47,iy+ih*.68);
     ctx.stroke();
   }
 
   ctx.restore();
 
-  const paneW=(iw-divider)/2;
-  ctx.strokeStyle="rgba(4,8,13,.65)";
-  ctx.lineWidth=Math.max(1,tile*.025);
-  ctx.strokeRect(ix,iy,paneW,ih);
-  ctx.strokeRect(ix+paneW+divider,iy,paneW,ih);
-
-  ctx.fillStyle="#55584f";
+  ctx.fillStyle="#5f6052";
   ctx.fillRect(wx,wy,ww,frame);
   ctx.fillRect(wx,wy+wh-frame,ww,frame);
   ctx.fillRect(wx,wy,frame,wh);
@@ -3978,13 +4010,110 @@ function drawLevel3Window(tile,ox,oy,maps){
   ctx.fillRect(wx,wy,ww,Math.max(1,tile*.025));
   ctx.fillRect(wx,wy,Math.max(1,tile*.025),wh);
 
+  ctx.strokeStyle="rgba(4,7,10,.7)";
+  ctx.lineWidth=Math.max(1,tile*.025);
+  ctx.strokeRect(ix,iy,iw,ih);
+}
+
+function level3DrawTorch(tile,ox,oy){
+  if(!tex.torch.complete || !tex.torch.naturalWidth) return;
+
+  const img=tex.torch;
+  let frameSize;
+  let frames;
+  let sx=0;
+  let sy=0;
+
+  if(img.naturalHeight>=img.naturalWidth){
+    frameSize=img.naturalWidth;
+    frames=Math.max(1,Math.floor(img.naturalHeight/frameSize));
+    sy=(Math.floor(Date.now()/110)%frames)*frameSize;
+  }else{
+    frameSize=img.naturalHeight;
+    frames=Math.max(1,Math.floor(img.naturalWidth/frameSize));
+    sx=(Math.floor(Date.now()/110)%frames)*frameSize;
+  }
+
+  const size=tile*.68;
+  const x=ox+L3_EXIT_TORCH.x*tile-size/2;
+  const y=oy+L3_EXIT_TORCH.y*tile-size/2;
+
+  ctx.save();
+  ctx.shadowColor="rgba(255,166,55,.28)";
+  ctx.shadowBlur=tile*.08;
+  ctx.drawImage(img,sx,sy,frameSize,frameSize,x,y,size,size);
   ctx.restore();
 }
 
+function level3DrawGhost(tile,ox,oy,now=performance.now()){
+  const g=level3GhostPosition(now);
+  const x=ox+g.x*tile;
+  const y=oy+g.y*tile;
+  const size=tile*.9;
+
+  if(
+    tex.redGhost.complete &&
+    tex.redGhost.naturalWidth>=48 &&
+    tex.redGhost.naturalHeight>=192
+  ){
+    const frame=Math.floor(Date.now()/125)%4;
+    ctx.drawImage(
+      tex.redGhost,
+      0,
+      frame*48,
+      48,
+      48,
+      x-size/2,
+      y-size/2,
+      size,
+      size
+    );
+    return;
+  }
+
+  ctx.save();
+  ctx.fillStyle="rgba(238,55,55,.86)";
+  ctx.beginPath();
+  ctx.arc(x,y,size*.28,0,Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function level3ApplyLighting(tile,ox,oy,maps){
+  for(let y=0;y<L3_H;y++){
+    for(let x=0;x<L3_W;x++){
+      const l=level3LightAt(maps,x,y);
+      const px=ox+x*tile;
+      const py=oy+y*tile;
+      const darkness=Math.max(0,.88-l.total*.88);
+
+      if(darkness>0){
+        ctx.fillStyle=`rgba(0,0,0,${darkness})`;
+        ctx.fillRect(px,py,tile+1,tile+1);
+      }
+
+      if(l.warm>0){
+        ctx.fillStyle=`rgba(255,183,72,${.025+l.warm*.12})`;
+        ctx.fillRect(px,py,tile+1,tile+1);
+      }
+
+      if(l.red>0){
+        ctx.fillStyle=`rgba(255,42,42,${l.red*.16})`;
+        ctx.fillRect(px,py,tile+1,tile+1);
+      }
+
+      if(l.blue>0){
+        ctx.fillStyle=`rgba(178,215,255,${l.blue*.15})`;
+        ctx.fillRect(px,py,tile+1,tile+1);
+      }
+    }
+  }
+}
+
 function drawLevel3Player(p,tile,ox,oy){
-  const sx=ox+p.x*tile;
-  const sy=oy+(p.y-L3_PLAYER_H*.55)*tile;
-  const r=Math.max(8,tile*.3);
+  const sx=ox+(+p.x)*tile;
+  const sy=oy+(+p.y-L3_PLAYER_H*.52)*tile;
+  const r=Math.max(8,tile*.28);
   const im=getAvatarImage(p);
 
   ctx.save();
@@ -3994,7 +4123,6 @@ function drawLevel3Player(p,tile,ox,oy){
 
   if(im && im.complete && im.naturalWidth){
     const side=Math.min(im.naturalWidth,im.naturalHeight);
-
     ctx.drawImage(
       im,
       (im.naturalWidth-side)/2,
@@ -4010,7 +4138,7 @@ function drawLevel3Player(p,tile,ox,oy){
     ctx.fillStyle=p.host ? "#d6b25e" : "#b8b8bd";
     ctx.fillRect(sx-r,sy-r,r*2,r*2);
     ctx.fillStyle="#18181b";
-    ctx.font=`900 ${Math.max(12,tile*.18)}px monospace`;
+    ctx.font=`900 ${Math.max(11,tile*.18)}px monospace`;
     ctx.textAlign="center";
     ctx.textBaseline="middle";
     ctx.fillText((p.name||"?").trim().charAt(0).toUpperCase(),sx,sy+1);
@@ -4024,7 +4152,7 @@ function drawLevel3Player(p,tile,ox,oy){
   ctx.lineWidth=2;
   ctx.stroke();
 
-  ctx.font=`900 ${Math.max(11,tile*.16)}px system-ui`;
+  ctx.font=`900 ${Math.max(10,tile*.15)}px system-ui`;
   ctx.textAlign="center";
   ctx.textBaseline="bottom";
   ctx.fillStyle="#fff";
@@ -4034,7 +4162,7 @@ function drawLevel3Player(p,tile,ox,oy){
   ctx.fillText(p.name||"Gracz",sx,sy-r-4);
 }
 
-function renderLevel3View(cameraX,cameraY,full=false){
+function renderLevel3(){
   const d=Math.max(1,Math.min(2,devicePixelRatio||1));
   ctx.setTransform(d,0,0,d,0,0);
   ctx.imageSmoothingEnabled=false;
@@ -4042,93 +4170,26 @@ function renderLevel3View(cameraX,cameraY,full=false){
   ctx.fillRect(0,0,innerWidth,innerHeight);
 
   const tile=Math.min(
-    (innerWidth-20)/L3_W,
-    (innerHeight-20)/L3_H
+    (innerWidth-24)/L3_W,
+    (innerHeight-24)/L3_H
   );
-
-  const scene={
-    ox:(innerWidth-L3_W*tile)/2,
-    oy:(innerHeight-L3_H*tile)/2
-  };
-
-  const ox=scene.ox;
-  const oy=scene.oy;
+  const ox=(innerWidth-L3_W*tile)/2;
+  const oy=(innerHeight-L3_H*tile)/2;
   const now=performance.now();
   const maps=buildLevel3LightMaps(now);
 
-  ctx.fillStyle="#050505";
-  ctx.fillRect(ox,oy,L3_W*tile,L3_H*tile);
+  level3DrawBackground(tile,ox,oy);
 
-  for(let y=1;y<L3_H-1;y++){
-    for(let x=1;x<L3_W-1;x++){
-      const img=((x*7+y*5)%19===0) ? tex.moss : tex.wall;
-      level3DrawTileImage(
-        img,
-        ox+x*tile,
-        oy+y*tile,
-        tile
-      );
-      ctx.fillStyle="rgba(0,0,0,.42)";
-      ctx.fillRect(ox+x*tile,oy+y*tile,tile+1,tile+1);
-    }
+  for(const p of level3StaticPlatforms()){
+    level3DrawPlatformBody(p,tile,ox,oy);
   }
 
-  for(let x=0;x<L3_W;x++){
-    level3DrawTileImage(
-      (x%6===0 || x%11===0) ? tex.moss : tex.wall,
-      ox+x*tile,
-      oy,
-      tile
-    );
-
-    level3DrawTileImage(
-      ((x+3)%7===0 || (x+2)%13===0) ? tex.moss : tex.wall,
-      ox+x*tile,
-      oy+(L3_H-1)*tile,
-      tile
-    );
-  }
-
-  for(let y=1;y<L3_H-1;y++){
-    level3DrawTileImage(
-      y%5===0 ? tex.moss : tex.wall,
-      ox,
-      oy+y*tile,
-      tile
-    );
-
-    level3DrawTileImage(
-      (y+2)%6===0 ? tex.moss : tex.wall,
-      ox+(L3_W-1)*tile,
-      oy+y*tile,
-      tile
-    );
-  }
-
-
-  for(const rect of level3StaticSolids()){
-    if(rect.y<0 || rect.x<0) continue;
-    level3DrawPlatformRect(rect,tile,ox,oy);
-  }
-
-  level3DrawPlatformRect(level3MovingPlatform(now),tile,ox,oy);
-  level3RenderDoor(L3_ENTRY_DOOR,tile,ox,oy,false);
-  level3RenderDoor(L3_EXIT_DOOR,tile,ox,oy,true);
-
-  for(let y=0;y<L3_H;y++){
-    for(let x=0;x<L3_W;x++){
-      level3ApplyTileLighting(x,y,tile,ox,oy,maps);
-    }
-  }
-
-  drawLevel3Window(tile,ox,oy,maps);
-  level3DrawAnimatedTorch(
-    L3_EXIT_TORCH.x,
-    L3_EXIT_TORCH.y,
-    tile,
-    ox,
-    oy
-  );
+  level3DrawPlatformBody(level3MovingPlatform(now),tile,ox,oy);
+  level3DrawDoor(L3_ENTRY_DOOR,tile,ox,oy,false);
+  level3DrawDoor(L3_EXIT_DOOR,tile,ox,oy,true);
+  level3ApplyLighting(tile,ox,oy,maps);
+  level3DrawWindow(tile,ox,oy,maps);
+  level3DrawTorch(tile,ox,oy);
   level3DrawGhost(tile,ox,oy,now);
 
   const players=Object.values(remotePlayers).filter(p=>
@@ -4156,46 +4217,23 @@ function renderLevel3View(cameraX,cameraY,full=false){
   }
 
   for(const p of players){
-    const tx=Math.max(
-      0,
-      Math.min(L3_W-1,Math.floor(+p.x))
-    );
-    const ty=Math.max(
-      0,
-      Math.min(L3_H-1,Math.floor(+p.y-.45))
-    );
-    const light=level3LightAt(maps,tx,ty);
+    const tx=Math.max(0,Math.min(L3_W-1,Math.floor(+p.x)));
+    const ty=Math.max(0,Math.min(L3_H-1,Math.floor(+p.y-.45)));
+    const l=level3LightAt(maps,tx,ty);
 
-    if(light.total>.03 || p.uid===auth.currentUser?.uid){
+    if(l.total>.025 || p.uid===auth.currentUser?.uid){
       drawLevel3Player(p,tile,ox,oy);
     }
   }
 }
 
-function renderLevel3(){
-  renderLevel3View(L3_W/2,L3_H/2,true);
-}
-
-function startLevel3Jump(){
-  if(
-    currentLevel!==3 ||
-    currentUser?.role==="spectator" ||
-    playerFinished ||
-    !level3OnGround
-  ) return;
-
-  level3Vel.y=-L3_JUMP_SPEED;
-  level3OnGround=false;
-  level3StandOnMoving=false;
-}
-
 function nearLevel3ExitDoor(){
   return (
     currentLevel===3 &&
-    localPos.x>=18.05 &&
-    localPos.x<=19.8 &&
-    localPos.y>=7.95 &&
-    localPos.y<=8.55
+    localPos.x>=17.85 &&
+    localPos.x<=19.7 &&
+    localPos.y>=7.45 &&
+    localPos.y<=7.72
   );
 }
 
@@ -4246,42 +4284,53 @@ async function enterLevel3Portal(){
 }
 
 function updateLevel3Movement(mv,now=performance.now()){
-  const dt=Math.min(
-    .033,
-    Math.max(0,(now-level3LastMoveFrame)/1000 || 0)
-  );
-
+  let dt=(now-level3LastMoveFrame)/1000;
   level3LastMoveFrame=now;
+
+  if(!Number.isFinite(dt) || dt<0) dt=0;
+  dt=Math.min(.034,dt);
 
   const movingY=level3MovingPlatformY(now);
 
-  if(level3StandOnMoving && level3OnGround){
+  if(level3OnGround && level3GroundId==="moving"){
     localPos.y+=movingY-level3PrevMovingY;
   }
 
   level3PrevMovingY=movingY;
-  level3Vel.x=mv.x*L3_MOVE_SPEED;
 
-  level3MoveHorizontal(level3Vel.x*dt,now);
+  const targetX=Math.max(-1,Math.min(1,mv.x))*L3_MOVE_SPEED;
+  const accel=Math.min(1,L3_ACCEL*dt);
+  level3Vel.x+=(targetX-level3Vel.x)*accel;
 
-  level3OnGround=false;
-  level3StandOnMoving=false;
-  level3Vel.y=Math.min(15,level3Vel.y+L3_GRAVITY*dt);
+  if(Math.abs(targetX)<.01 && Math.abs(level3Vel.x)<.025){
+    level3Vel.x=0;
+  }
 
-  level3MoveVertical(level3Vel.y*dt,now);
+  level3MoveX(level3Vel.x*dt);
   level3ProbeGround(now);
+  level3TryConsumeJump(now);
 
-  localPos.x=Math.max(
-    L3_PLAYER_W/2,
-    Math.min(L3_W-L3_PLAYER_W/2,localPos.x)
-  );
+  const oldY=localPos.y;
+  level3Vel.y=Math.min(L3_MAX_FALL,level3Vel.y+L3_GRAVITY*dt);
+  const nextY=oldY+level3Vel.y*dt;
 
-  if(localPos.y>L3_H+1.25){
-    localPos={x:L3_RESPAWN.x,y:L3_RESPAWN.y};
-    spectatorPos={...localPos};
-    level3Vel={x:0,y:0};
+  if(level3Vel.y>=0){
     level3OnGround=false;
-    level3StandOnMoving=false;
+    level3GroundId="";
+
+    if(!level3LandOnPlatforms(oldY,nextY,now)){
+      localPos.y=nextY;
+    }
+  }else{
+    localPos.y=nextY;
+    level3CheckCeiling(localPos.y);
+  }
+
+  level3ProbeGround(now);
+  level3TryConsumeJump(now);
+
+  if(localPos.y>L3_FALL_RESPAWN_Y){
+    level3Respawn();
   }
 
   if(nearLevel3ExitDoor()){
@@ -4329,27 +4378,19 @@ async function startLevel3(game){
   document.body.classList.add("game-running");
   document.body.style.overflow="hidden";
 
-  localPos={x:L3_RESPAWN.x,y:L3_RESPAWN.y};
-  spectatorPos={...localPos};
+  level3Respawn();
   moveTarget=null;
   resetMovementInput();
-
-  level3Vel={x:0,y:0};
-  level3OnGround=false;
   level3LastMoveFrame=performance.now();
   level3PrevMovingY=level3MovingPlatformY(level3LastMoveFrame);
-  level3StandOnMoving=false;
-  level3NextFlashAt=performance.now()+1200+Math.random()*1400;
+  level3NextFlashAt=level3LastMoveFrame+1500+Math.random()*1800;
   level3FlashUntil=0;
+  level3ExitScreenRect=null;
 
   $("levelBanner").querySelector(".big").textContent="Kamienne Ruiny Schodów";
   $("levelBanner").querySelector(".small").textContent="";
   $("levelBanner").classList.add("show");
-
-  setTimeout(
-    ()=>$("levelBanner").classList.remove("show"),
-    2600
-  );
+  setTimeout(()=>$("levelBanner").classList.remove("show"),2600);
 
   $("finishWait").style.display="none";
 
@@ -4919,8 +4960,11 @@ async function teleportHostToDoor(){
   }
 
   if(currentLevel===3){
-    localPos={x:18.45,y:8.3};
+    localPos={x:18.05,y:7.55};
     level3Vel={x:0,y:0};
+    level3OnGround=true;
+    level3GroundId="exit";
+    level3LastGroundAt=performance.now();
     moveTarget=null;
 
     await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
