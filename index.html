@@ -2845,21 +2845,6 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
     light?.[8]?.[rightDoorX-1]||0
   );
 
-  for(let y=6;y<=9;y++){
-    drawRaisedLevel2Tile(
-      tex.wall,
-      ox+rightDoorX*tile,
-      oy+y*tile,
-      tile,
-      tile*.52,
-      "#555",
-      null,
-      0,
-      1,
-      level2WallLightIntensity(rightDoorX,y,light)
-    );
-  }
-
   drawLevel2Door("left",tile,ox,oy,leftDoorLight);
   drawLevel2Door("right",tile,ox,oy,rightDoorLight);
 
