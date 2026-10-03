@@ -554,59 +554,63 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
   display:none;
   align-items:flex-end;
   justify-content:center;
-  padding:20px;
+  padding:0 14px max(12px,env(safe-area-inset-bottom));
   pointer-events:none;
 }
 #penaltyRoomUI.show{display:flex}
 #penaltyRoomUI .penaltyBox{
-  width:min(560px,92vw);
+  width:min(470px,94vw);
   pointer-events:auto;
-  background:rgba(10,10,12,.92);
-  border:2px solid #4a4a52;
-  border-radius:14px;
-  box-shadow:0 20px 48px rgba(0,0,0,.45);
-  padding:16px 16px 14px;
+  background:rgba(8,8,10,.9);
+  border:2px solid #55555e;
+  border-radius:12px;
+  box-shadow:0 10px 30px rgba(0,0,0,.55);
+  padding:10px 12px 11px;
   color:#fff;
+  backdrop-filter:blur(5px);
 }
 #penaltyRoomUI .penaltyTitle{
-  font:900 20px/1.1 system-ui,-apple-system,"Segoe UI",sans-serif;
-  margin-bottom:6px;
+  font:900 15px/1.15 system-ui,-apple-system,"Segoe UI",sans-serif;
+  margin-bottom:2px;
 }
 #penaltyRoomUI .penaltyText{
-  font:500 14px/1.35 system-ui,-apple-system,"Segoe UI",sans-serif;
-  color:#d1d5db;
-  margin-bottom:12px;
+  font:500 12px/1.25 system-ui,-apple-system,"Segoe UI",sans-serif;
+  color:#c9c9d0;
+  margin-bottom:8px;
 }
 #penaltyRoomUI .penaltyAnswerRow{
   display:flex;
-  gap:10px;
+  gap:8px;
 }
 #penaltyAnswer{
   flex:1;
   min-width:0;
-  height:44px;
-  border-radius:10px;
+  height:40px;
+  border-radius:8px;
   border:2px solid #5b5b64;
-  background:#15151a;
+  background:#111116;
   color:#fff;
-  padding:0 12px;
-  font:800 18px/1 monospace;
+  padding:0 11px;
+  font:900 18px/1 monospace;
   outline:none;
 }
+#penaltyAnswer:focus{
+  border-color:#caa33f;
+}
 #penaltySubmit{
-  height:44px;
-  padding:0 16px;
-  border-radius:10px;
-  border:2px solid #6b5d2f;
-  background:#d5a936;
+  height:40px;
+  padding:0 15px;
+  border-radius:8px;
+  border:2px solid #7d6525;
+  background:#d8ac36;
   color:#111;
-  font:900 14px/1 system-ui,-apple-system,"Segoe UI",sans-serif;
+  font:900 13px/1 system-ui,-apple-system,"Segoe UI",sans-serif;
 }
 #penaltyError{
-  min-height:18px;
-  margin-top:10px;
-  color:#ff8c8c;
-  font:700 13px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;
+  min-height:16px;
+  margin-top:6px;
+  color:#ff9393;
+  font:700 12px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;
 }
 
 </style>
@@ -714,8 +718,8 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
 <div id="drownOverlay"><div>Utonąłeś</div></div>
 <div id="penaltyRoomUI" class="hidden">
   <div class="penaltyBox">
-    <div class="penaltyTitle">Sala ratunkowa</div>
-    <div class="penaltyText">Rozwiąż zadanie z tablicy, aby wrócić do gry.</div>
+    <div class="penaltyTitle">Odpowiedz, aby wrócić</div>
+    <div class="penaltyText">Wpisz wynik działania z tablicy.</div>
     <div class="penaltyAnswerRow">
       <input id="penaltyAnswer" inputmode="numeric" autocomplete="off" placeholder="Wpisz wynik">
       <button id="penaltySubmit">Odpowiedz</button>
@@ -850,15 +854,20 @@ const L2_TORCHES = [
   {x:4.5,y:14.5,visible:false},
   {x:29.5,y:14.5,visible:false}
 ];
-const P2_COLS = 14;
-const P2_ROWS = 9;
+const P2_COLS = 18;
+const P2_ROWS = 11;
 const P2_BENCHES = [
-  {x:3.7,y:3.0},
-  {x:3.7,y:5.0},
-  {x:6.8,y:3.0},
-  {x:6.8,y:5.0}
+  {x:4.0,y:3.0},
+  {x:7.0,y:3.0},
+  {x:10.0,y:3.0},
+  {x:4.0,y:5.5},
+  {x:7.0,y:5.5},
+  {x:10.0,y:5.5},
+  {x:4.0,y:8.0},
+  {x:7.0,y:8.0},
+  {x:10.0,y:8.0}
 ];
-const P2_BOARD = {x:11.65,y:4.0};
+const P2_BOARD = {x:15.55,y:5.45};
 
 
 let maze = null;
@@ -1012,8 +1021,8 @@ for (const [k,u] of Object.entries({
   spruce:"assets/spruce_plank.png",
   door:"assets/door.png",
   torch:"assets/torch.png",
-  bench:"assets/bench.png",
-  board:"assets/board.png"
+  bench:"assets/lawka.png",
+  board:"assets/tablica.png"
 })) {
   tex[k] = new Image();
   tex[k].src = u;
@@ -2493,20 +2502,17 @@ function drawPenaltyBench(img,cx,cy,tile){
   ctx.translate(cx,cy);
   ctx.rotate(Math.PI/2);
 
-  if(img.complete && img.naturalWidth){
-    const maxSide=tile*1.55;
-    const scale=maxSide/Math.max(img.naturalWidth,img.naturalHeight);
-    const w=img.naturalWidth*scale;
-    const h=img.naturalHeight*scale;
-    ctx.drawImage(img,-w/2,-h/2,w,h);
+  const size=tile*1.28;
+  ctx.fillStyle="rgba(0,0,0,.28)";
+  ctx.beginPath();
+  ctx.ellipse(tile*.1,tile*.18,size*.43,size*.27,0,0,Math.PI*2);
+  ctx.fill();
 
-    ctx.fillStyle="rgba(0,0,0,.18)";
-    ctx.fillRect(-w*.46,h*.22,w*.92,Math.max(2,tile*.06));
+  if(img.complete && img.naturalWidth){
+    ctx.drawImage(img,-size/2,-size/2,size,size);
   }else{
-    const w=tile*1.45;
-    const h=tile*.95;
-    ctx.fillStyle="#5c67a8";
-    ctx.fillRect(-w/2,-h/2,w,h);
+    ctx.fillStyle="#5966a8";
+    ctx.fillRect(-size*.42,-size*.25,size*.84,size*.5);
   }
 
   ctx.restore();
@@ -2522,61 +2528,157 @@ function drawPenaltyRoomScene(tile,ox,oy){
       const py=oy+y*tile;
 
       if(x===0 || y===0 || x===P2_COLS-1 || y===P2_ROWS-1){
-        drawRaisedLevel2Tile(tex.wall,px,py,tile,tile*.28,"#555",null,0,1,1);
+        drawRaisedLevel2Tile(
+          tex.wall,
+          px,
+          py,
+          tile,
+          tile*.30,
+          "#555",
+          null,
+          0,
+          1,
+          .92
+        );
       }else{
-        drawRaisedLevel2Tile(tex.oak,px,py,tile,tile*.12,"#8a5a2b",null,0,1,.95);
+        drawRaisedLevel2Tile(
+          tex.oak,
+          px,
+          py,
+          tile,
+          tile*.11,
+          "#8a5a2b",
+          null,
+          0,
+          1,
+          .88
+        );
       }
     }
   }
 
+  ctx.fillStyle="rgba(24,12,4,.18)";
+  ctx.fillRect(
+    ox+tile*1.1,
+    oy+tile*1.1,
+    tile*(P2_COLS-2.2),
+    tile*(P2_ROWS-2.2)
+  );
+
   for(const b of P2_BENCHES){
-    drawPenaltyBench(tex.bench, ox+b.x*tile, oy+b.y*tile, tile);
+    drawPenaltyBench(tex.bench,ox+b.x*tile,oy+b.y*tile,tile);
   }
 
-  const boardCenterX=ox+P2_BOARD.x*tile;
-  const boardCenterY=oy+P2_BOARD.y*tile;
-  let bw=tile*2.0;
-  let bh=tile*3.7;
+  const boardX=ox+P2_BOARD.x*tile;
+  const boardY=oy+P2_BOARD.y*tile;
+  let bw=tile*2.45;
+  let bh=tile*4.75;
+
+  ctx.save();
+  ctx.fillStyle="rgba(0,0,0,.36)";
+  ctx.beginPath();
+  ctx.ellipse(
+    boardX-tile*.12,
+    boardY+tile*1.95,
+    tile*.72,
+    tile*.33,
+    0,
+    0,
+    Math.PI*2
+  );
+  ctx.fill();
 
   if(tex.board.complete && tex.board.naturalWidth){
-    const maxH=tile*4.2;
-    const scale=maxH/tex.board.naturalHeight;
+    const scale=bh/tex.board.naturalHeight;
     bw=tex.board.naturalWidth*scale;
-    bh=tex.board.naturalHeight*scale;
-    ctx.drawImage(tex.board,boardCenterX-bw/2,boardCenterY-bh/2,bw,bh);
+    ctx.drawImage(
+      tex.board,
+      boardX-bw/2,
+      boardY-bh/2,
+      bw,
+      bh
+    );
   }else{
-    ctx.fillStyle="#5e8740";
-    ctx.fillRect(boardCenterX-bw/2,boardCenterY-bh/2,bw,bh);
+    ctx.fillStyle="#4f773e";
+    ctx.fillRect(boardX-bw/2,boardY-bh/2,bw,bh);
   }
+  ctx.restore();
 
   const q=level2PenaltyQuestion?.text || "?";
 
   ctx.save();
-  ctx.translate(boardCenterX+tile*.03,boardCenterY-tile*.02);
-  ctx.rotate(-0.56);
+  ctx.translate(boardX-tile*.02,boardY);
+  ctx.rotate(-0.47);
+  ctx.transform(1,0,0,.92,0,0);
   ctx.textAlign="center";
   ctx.textBaseline="middle";
-  ctx.fillStyle="#f6f7f1";
-  ctx.strokeStyle="rgba(0,0,0,.55)";
-  ctx.lineWidth=4;
-  ctx.font=`900 ${Math.max(19,Math.floor(tile*.34))}px system-ui`;
-  ctx.strokeText(q,0,0,bw*.68);
-  ctx.fillText(q,0,0,bw*.68);
+  ctx.font=`900 ${Math.max(17,Math.floor(tile*.31))}px system-ui`;
+  ctx.lineWidth=5;
+  ctx.strokeStyle="rgba(25,31,18,.78)";
+  ctx.fillStyle="#f7f4d8";
+  ctx.strokeText(q,0,0,tile*1.75);
+  ctx.fillText(q,0,0,tile*1.75);
   ctx.restore();
 
-  ctx.fillStyle="#fff";
-  ctx.font=`900 ${Math.max(18,Math.floor(tile*.28))}px system-ui`;
-  ctx.strokeStyle="rgba(0,0,0,.7)";
-  ctx.lineWidth=5;
-  ctx.strokeText("Pokój ratunkowy", ox+tile*5.3, oy+tile*1.05);
-  ctx.fillText("Pokój ratunkowy", ox+tile*5.3, oy+tile*1.05);
+  const me={
+    uid:auth.currentUser?.uid,
+    name:currentUser?.name||"",
+    avatar:avatarData,
+    host:currentUser?.role==="host"
+  };
+  const px=ox+tile*12.35;
+  const py=oy+tile*7.25;
+  const r=Math.max(12,tile*.34);
+  const im=getAvatarImage(me);
 
-  ctx.font=`700 ${Math.max(13,Math.floor(tile*.18))}px system-ui`;
-  ctx.fillStyle="#e5e7eb";
-  ctx.strokeStyle="rgba(0,0,0,.75)";
+  ctx.save();
+  ctx.fillStyle="rgba(0,0,0,.3)";
+  ctx.beginPath();
+  ctx.ellipse(px,py+r*.82,r*.95,r*.34,0,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(px,py,r,0,Math.PI*2);
+  ctx.clip();
+
+  if(im && im.complete && im.naturalWidth){
+    const side=Math.min(im.naturalWidth,im.naturalHeight);
+    ctx.drawImage(
+      im,
+      (im.naturalWidth-side)/2,
+      (im.naturalHeight-side)/2,
+      side,
+      side,
+      px-r,
+      py-r,
+      r*2,
+      r*2
+    );
+  }else{
+    ctx.fillStyle=me.host ? "#d6b25e" : "#b8b8bd";
+    ctx.fillRect(px-r,py-r,r*2,r*2);
+    ctx.fillStyle="#18181b";
+    ctx.font=`900 ${Math.max(12,r*.85)}px monospace`;
+    ctx.textAlign="center";
+    ctx.textBaseline="middle";
+    ctx.fillText((me.name||"?").trim().charAt(0).toUpperCase(),px,py+1);
+  }
+  ctx.restore();
+
+  ctx.beginPath();
+  ctx.arc(px,py,r+1,0,Math.PI*2);
+  ctx.strokeStyle="#fff";
+  ctx.lineWidth=2;
+  ctx.stroke();
+
+  ctx.textAlign="center";
+  ctx.textBaseline="bottom";
+  ctx.font=`800 ${Math.max(11,Math.floor(tile*.19))}px system-ui`;
   ctx.lineWidth=4;
-  ctx.strokeText("Rozwiąż zadanie z tablicy, aby wrócić do gry.", ox+tile*6.9, oy+tile*7.85);
-  ctx.fillText("Rozwiąż zadanie z tablicy, aby wrócić do gry.", ox+tile*6.9, oy+tile*7.85);
+  ctx.strokeStyle="#000";
+  ctx.fillStyle="#fff";
+  ctx.strokeText(me.name,px,py-r-5);
+  ctx.fillText(me.name,px,py-r-5);
 }
 
 function drawLevel2Scene(tile,ox,oy,overview=false){
@@ -2913,13 +3015,15 @@ function renderLevel2(){
   ctx.imageSmoothingEnabled=false;
 
   if(level2PenaltyActive){
-    const margin=26;
+    const sideMargin=Math.max(14,innerWidth*.018);
+    const topMargin=Math.max(12,innerHeight*.025);
+    const bottomReserve=Math.min(112,Math.max(84,innerHeight*.18));
     const tile=Math.min(
-      (innerWidth-margin*2)/P2_COLS,
-      (innerHeight-margin*2)/P2_ROWS
+      (innerWidth-sideMargin*2)/P2_COLS,
+      (innerHeight-topMargin-bottomReserve)/P2_ROWS
     );
     const ox=(innerWidth-P2_COLS*tile)/2;
-    const oy=(innerHeight-P2_ROWS*tile)/2;
+    const oy=topMargin+(innerHeight-topMargin-bottomReserve-P2_ROWS*tile)/2;
     drawPenaltyRoomScene(tile,ox,oy);
     return;
   }
