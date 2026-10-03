@@ -880,19 +880,19 @@ const L3_W = 20;
 const L3_H = 14;
 const L3_PLAYER_W = .72;
 const L3_PLAYER_H = .96;
-const L3_MOVE_SPEED = 2.65;
+const L3_MOVE_SPEED = 2.35;
 const L3_GRAVITY = 21;
 const L3_JUMP_SPEED = 8.6;
-const L3_GHOST = {x:1.85,y:2.85};
-const L3_WINDOW = {x:5.2,y:.95,w:7.2,h:3.7};
-const L3_ENTRY_DOOR = {x:.1,y:10.35,w:1,h:2};
-const L3_EXIT_DOOR = {x:18.05,y:6.35,w:1,h:2};
-const L3_EXIT_TORCH = {x:17.15,y:6.65};
-const L3_RESPAWN = {x:1.65,y:12.35};
+const L3_GHOST = {x:2.15,y:3.15};
+const L3_WINDOW = {x:5.15,y:1.05,w:7.7,h:4.15};
+const L3_ENTRY_DOOR = {x:.08,floorY:12.4,w:.9};
+const L3_EXIT_DOOR = {x:18.72,floorY:8.3,w:.9};
+const L3_EXIT_TORCH = {x:17.45,y:7.95};
+const L3_RESPAWN = {x:1.55,y:12.4};
 const L3_COLLISION_STEP = .055;
 const L3_EXIT_LIGHT_RADIUS = L2_TORCH_RADIUS;
-const L3_GHOST_LIGHT_RADIUS = L2_TORCH_RADIUS;
-const L3_GHOST_LIGHT_POWER = L2_TORCH_POWER;
+const L3_GHOST_LIGHT_RADIUS = 2.15;
+const L3_GHOST_LIGHT_POWER = 0.42;
 
 
 let maze = null;
@@ -3462,7 +3462,7 @@ function drownLevel2(){
 
 
 function level3MovingPlatformY(now=performance.now()){
-  return 10.45 + Math.sin(now/820)*1.15;
+  return 9.35 + Math.sin(now/850)*.82;
 }
 
 function level3StaticSolids(){
@@ -3470,16 +3470,16 @@ function level3StaticSolids(){
     {x:-1,y:-1,w:1,h:L3_H+2},
     {x:L3_W,y:-1,w:1,h:L3_H+2},
     {x:0,y:-1,w:L3_W,h:1},
-    {x:17,y:8.3,w:3,h:5.7},
-    {x:13.25,y:9.95,w:3.05,h:.55},
-    {x:9.15,y:10.95,w:2.75,h:.55},
-    {x:3.45,y:11.75,w:1.65,h:.55},
-    {x:0,y:12.4,w:4.25,h:1.6}
+    {x:15.6,y:8.3,w:4.4,h:5.7},
+    {x:9.3,y:10.15,w:2.25,h:.46},
+    {x:6.55,y:10.9,w:1.9,h:.46},
+    {x:3.95,y:11.65,w:1.8,h:.46},
+    {x:0,y:12.4,w:3.25,h:1.6}
   ];
 }
 
 function level3MovingPlatform(now=performance.now()){
-  return {x:5.85,y:level3MovingPlatformY(now),w:2.25,h:.55,moving:true};
+  return {x:12.35,y:level3MovingPlatformY(now),w:2.2,h:.46,moving:true};
 }
 
 function level3AllSolids(now=performance.now()){
@@ -3751,29 +3751,73 @@ function level3DrawTileImage(img,x,y,size){
 }
 
 function level3DrawPlatformRect(rect,tile,ox,oy){
-  const startX=Math.floor(rect.x);
-  const endX=Math.ceil(rect.x+rect.w);
-  const startY=Math.floor(rect.y);
-  const endY=Math.ceil(rect.y+rect.h);
+  const px=ox+rect.x*tile;
+  const py=oy+rect.y*tile;
+  const width=rect.w*tile;
+  const totalH=Math.max(tile*.34,rect.h*tile);
+  const topH=Math.min(tile*.17,totalH*.42);
+  const frontH=Math.max(tile*.17,totalH-topH);
+  const tileCount=Math.ceil(rect.w)+1;
 
-  for(let ty=startY;ty<endY;ty++){
-    for(let tx=startX;tx<endX;tx++){
-      const img=(tx+ty)%9===0 ? tex.moss : tex.wall;
-      level3DrawTileImage(
-        img,
-        ox+tx*tile,
-        oy+ty*tile,
-        tile
-      );
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(px,py,width,topH);
+  ctx.clip();
+
+  for(let i=0;i<tileCount;i++){
+    const img=((Math.floor(rect.x)+i+Math.floor(rect.y))%8===0) ? tex.moss : tex.wall;
+    const dx=px+i*tile;
+    if(img.complete && img.naturalWidth){
+      ctx.drawImage(img,dx,py,tile,tile);
+    }else{
+      ctx.fillStyle="#68685f";
+      ctx.fillRect(dx,py,tile,tile);
     }
   }
+  ctx.restore();
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(px,py+topH,width,frontH);
+  ctx.clip();
+
+  for(let i=0;i<tileCount;i++){
+    const img=((Math.floor(rect.x)+i+Math.floor(rect.y)+3)%9===0) ? tex.moss : tex.wall;
+    const dx=px+i*tile;
+    if(img.complete && img.naturalWidth){
+      ctx.drawImage(img,dx,py+topH,tile,frontH);
+    }else{
+      ctx.fillStyle="#54544d";
+      ctx.fillRect(dx,py+topH,tile,frontH);
+    }
+  }
+
+  ctx.fillStyle="rgba(0,0,0,.35)";
+  ctx.fillRect(px,py+topH,width,frontH);
+  ctx.restore();
+
+  ctx.fillStyle="rgba(255,255,255,.11)";
+  ctx.fillRect(px,py,width,Math.max(1,tile*.025));
+
+  ctx.fillStyle="rgba(0,0,0,.5)";
+  ctx.fillRect(px,py+topH+frontH-Math.max(1,tile*.035),width,Math.max(1,tile*.035));
+
+  const sideW=Math.max(2,tile*.08);
+  ctx.fillStyle="rgba(0,0,0,.28)";
+  ctx.beginPath();
+  ctx.moveTo(px+width,py);
+  ctx.lineTo(px+width+sideW,py+topH*.52);
+  ctx.lineTo(px+width+sideW,py+topH+frontH);
+  ctx.lineTo(px+width,py+topH+frontH);
+  ctx.closePath();
+  ctx.fill();
 }
 
 function level3RenderDoor(rect,tile,ox,oy,exit=false){
-  const x=ox+rect.x*tile;
-  const y=oy+rect.y*tile;
   const w=rect.w*tile;
-  const h=rect.h*tile;
+  const h=w*(168/128);
+  const x=ox+rect.x*tile;
+  const y=oy+rect.floorY*tile-h;
 
   if(exit){
     level3ExitScreenRect={x,y,w,h};
@@ -3781,12 +3825,18 @@ function level3RenderDoor(rect,tile,ox,oy,exit=false){
 
   const img=exit ? tex.doorUnlocked : tex.door;
 
+  ctx.save();
+  ctx.fillStyle="#17110d";
+  ctx.fillRect(x,y,w,h);
+
   if(img.complete && img.naturalWidth){
     ctx.drawImage(img,x,y,w,h);
   }else{
     ctx.fillStyle=exit ? "#ddb84a" : "#7a512f";
     ctx.fillRect(x,y,w,h);
   }
+
+  ctx.restore();
 }
 
 function level3DrawAnimatedTorch(x,y,tile,ox,oy){
@@ -3809,20 +3859,13 @@ function level3DrawAnimatedTorch(x,y,tile,ox,oy){
     sx=(Math.floor(now/110)%frames)*frameSize;
   }
 
-  const h=tile*.82;
-  const w=tile*.32;
+  const size=tile*.48;
+  const px=ox+x*tile-size/2;
+  const py=oy+y*tile-size;
 
-  ctx.drawImage(
-    img,
-    sx,
-    sy,
-    frameSize,
-    frameSize,
-    ox+x*tile-w/2,
-    oy+y*tile-h*.72,
-    w,
-    h
-  );
+  ctx.save();
+  ctx.drawImage(img,sx,sy,frameSize,frameSize,px,py,size,size);
+  ctx.restore();
 }
 
 function level3DrawGhost(tile,ox,oy,now=performance.now()){
@@ -3864,71 +3907,76 @@ function drawLevel3Window(tile,ox,oy,maps){
   const wy=oy+L3_WINDOW.y*tile;
   const ww=L3_WINDOW.w*tile;
   const wh=L3_WINDOW.h*tile;
+  const frame=Math.max(4,tile*.13);
+  const divider=Math.max(3,tile*.09);
+  const ix=wx+frame;
+  const iy=wy+frame;
+  const iw=ww-frame*2;
+  const ih=wh-frame*2;
 
   ctx.save();
-
-  ctx.fillStyle=maps.flash>.03
-    ? "rgba(188,221,255,.98)"
-    : "rgba(34,49,72,.96)";
+  ctx.fillStyle="#252822";
   ctx.fillRect(wx,wy,ww,wh);
 
-  const sky=ctx.createLinearGradient(wx,wy,wx,wy+wh);
-  sky.addColorStop(0,maps.flash>.03 ? "rgba(210,233,255,.48)" : "rgba(61,78,108,.32)");
-  sky.addColorStop(1,"rgba(8,13,24,.42)");
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(ix,iy,iw,ih);
+  ctx.clip();
+
+  const sky=ctx.createLinearGradient(ix,iy,ix,iy+ih);
+  sky.addColorStop(0,maps.flash>.03 ? "#bcd5ef" : "#35475d");
+  sky.addColorStop(.58,maps.flash>.03 ? "#8eabc8" : "#243448");
+  sky.addColorStop(1,"#101824");
   ctx.fillStyle=sky;
-  ctx.fillRect(wx,wy,ww,wh);
+  ctx.fillRect(ix,iy,iw,ih);
 
-  const rainOffset=(Date.now()/22)%tile;
+  const rainShift=(Date.now()/18)%(tile*.46);
+  ctx.lineWidth=Math.max(1,tile*.022);
+  ctx.strokeStyle=maps.flash>.03
+    ? "rgba(235,247,255,.68)"
+    : "rgba(151,190,224,.5)";
 
-  for(let x=wx-tile;x<wx+ww+tile;x+=tile*.38){
-    const rx=x+rainOffset*.33;
-    ctx.strokeStyle=maps.flash>.03
-      ? "rgba(235,248,255,.72)"
-      : "rgba(142,184,224,.46)";
-    ctx.lineWidth=Math.max(1,tile*.022);
-    ctx.beginPath();
-    ctx.moveTo(rx,wy);
-    ctx.lineTo(rx-tile*.34,wy+tile*.62);
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.moveTo(rx+tile*.08,wy+tile*.72);
-    ctx.lineTo(rx-tile*.26,wy+tile*1.34);
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.moveTo(rx+tile*.16,wy+tile*1.46);
-    ctx.lineTo(rx-tile*.18,wy+tile*2.08);
-    ctx.stroke();
+  for(let x=ix-iw;x<ix+iw*2;x+=tile*.42){
+    const rx=x+rainShift;
+    for(let y=iy-tile;y<iy+ih+tile;y+=tile*.8){
+      ctx.beginPath();
+      ctx.moveTo(rx,y);
+      ctx.lineTo(rx-tile*.22,y+tile*.5);
+      ctx.stroke();
+    }
   }
 
   if(maps.flash>.03){
     ctx.strokeStyle="rgba(255,255,255,.98)";
     ctx.lineWidth=Math.max(2,tile*.055);
-    ctx.shadowColor="rgba(215,238,255,.9)";
+    ctx.shadowColor="rgba(210,236,255,.95)";
     ctx.shadowBlur=tile*.16;
     ctx.beginPath();
-    ctx.moveTo(wx+ww*.26,wy+wh*.08);
-    ctx.lineTo(wx+ww*.37,wy+wh*.35);
-    ctx.lineTo(wx+ww*.32,wy+wh*.36);
-    ctx.lineTo(wx+ww*.47,wy+wh*.72);
+    ctx.moveTo(ix+iw*.22,iy+ih*.04);
+    ctx.lineTo(ix+iw*.34,iy+ih*.32);
+    ctx.lineTo(ix+iw*.29,iy+ih*.32);
+    ctx.lineTo(ix+iw*.44,iy+ih*.68);
     ctx.stroke();
-    ctx.shadowBlur=0;
   }
 
-  ctx.strokeStyle="#77735c";
-  ctx.lineWidth=Math.max(4,tile*.095);
-  ctx.strokeRect(wx,wy,ww,wh);
+  ctx.restore();
 
-  ctx.beginPath();
-  ctx.moveTo(wx+ww/2,wy);
-  ctx.lineTo(wx+ww/2,wy+wh);
-  ctx.stroke();
+  const paneW=(iw-divider)/2;
+  ctx.strokeStyle="rgba(4,8,13,.65)";
+  ctx.lineWidth=Math.max(1,tile*.025);
+  ctx.strokeRect(ix,iy,paneW,ih);
+  ctx.strokeRect(ix+paneW+divider,iy,paneW,ih);
 
-  ctx.beginPath();
-  ctx.moveTo(wx,wy+wh*.52);
-  ctx.lineTo(wx+ww,wy+wh*.52);
-  ctx.stroke();
+  ctx.fillStyle="#55584f";
+  ctx.fillRect(wx,wy,ww,frame);
+  ctx.fillRect(wx,wy+wh-frame,ww,frame);
+  ctx.fillRect(wx,wy,frame,wh);
+  ctx.fillRect(wx+ww-frame,wy,frame,wh);
+  ctx.fillRect(wx+ww/2-divider/2,wy+frame,divider,wh-frame*2);
+
+  ctx.fillStyle="rgba(255,255,255,.08)";
+  ctx.fillRect(wx,wy,ww,Math.max(1,tile*.025));
+  ctx.fillRect(wx,wy,Math.max(1,tile*.025),wh);
 
   ctx.restore();
 }
@@ -3936,7 +3984,7 @@ function drawLevel3Window(tile,ox,oy,maps){
 function drawLevel3Player(p,tile,ox,oy){
   const sx=ox+p.x*tile;
   const sy=oy+(p.y-L3_PLAYER_H*.55)*tile;
-  const r=Math.max(12,tile*.22);
+  const r=Math.max(8,tile*.3);
   const im=getAvatarImage(p);
 
   ctx.save();
@@ -3993,16 +4041,15 @@ function renderLevel3View(cameraX,cameraY,full=false){
   ctx.fillStyle="#000";
   ctx.fillRect(0,0,innerWidth,innerHeight);
 
-  const tile=full
-    ? Math.min((innerWidth-24)/L3_W,(innerHeight-24)/L3_H)
-    : TILE;
+  const tile=Math.min(
+    (innerWidth-20)/L3_W,
+    (innerHeight-20)/L3_H
+  );
 
-  const scene=full
-    ? {
-        ox:(innerWidth-L3_W*tile)/2,
-        oy:(innerHeight-L3_H*tile)/2
-      }
-    : level3SceneRect(cameraX,cameraY,tile);
+  const scene={
+    ox:(innerWidth-L3_W*tile)/2,
+    oy:(innerHeight-L3_H*tile)/2
+  };
 
   const ox=scene.ox;
   const oy=scene.oy;
@@ -4014,12 +4061,15 @@ function renderLevel3View(cameraX,cameraY,full=false){
 
   for(let y=1;y<L3_H-1;y++){
     for(let x=1;x<L3_W-1;x++){
+      const img=((x*7+y*5)%19===0) ? tex.moss : tex.wall;
       level3DrawTileImage(
-        tex.dirt,
+        img,
         ox+x*tile,
         oy+y*tile,
         tile
       );
+      ctx.fillStyle="rgba(0,0,0,.42)";
+      ctx.fillRect(ox+x*tile,oy+y*tile,tile+1,tile+1);
     }
   }
 
@@ -4123,23 +4173,7 @@ function renderLevel3View(cameraX,cameraY,full=false){
 }
 
 function renderLevel3(){
-  if(currentUser?.role==="spectator"){
-    if(followUid){
-      const p=remotePlayers[followUid];
-
-      if(p?.level===3 && p.x!=null && p.y!=null){
-        renderLevel3View(+p.x,+p.y,false);
-      }else{
-        renderLevel3View(L3_W/2,L3_H/2,true);
-      }
-    }else{
-      renderLevel3View(L3_W/2,L3_H/2,true);
-    }
-
-    return;
-  }
-
-  renderLevel3View(localPos.x,localPos.y,false);
+  renderLevel3View(L3_W/2,L3_H/2,true);
 }
 
 function startLevel3Jump(){
@@ -4158,9 +4192,9 @@ function startLevel3Jump(){
 function nearLevel3ExitDoor(){
   return (
     currentLevel===3 &&
-    localPos.x>=17.25 &&
-    localPos.x<=19.15 &&
-    localPos.y>=7.9 &&
+    localPos.x>=18.05 &&
+    localPos.x<=19.8 &&
+    localPos.y>=7.95 &&
     localPos.y<=8.55
   );
 }
@@ -4885,7 +4919,7 @@ async function teleportHostToDoor(){
   }
 
   if(currentLevel===3){
-    localPos={x:18.05,y:8.3};
+    localPos={x:18.45,y:8.3};
     level3Vel={x:0,y:0};
     moveTarget=null;
 
