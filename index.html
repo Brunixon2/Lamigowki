@@ -2312,8 +2312,10 @@ function drawLevel2Door(side,tile,ox,oy,intensity=1){
     ctx.fillRect(r.x,r.y,r.w,r.h);
   }
 
-  ctx.fillStyle=`rgba(255,183,72,${.04+intensity*.16})`;
-  ctx.fillRect(r.x,r.y,r.w,r.h);
+  if(side!=="right"){
+    ctx.fillStyle=`rgba(255,183,72,${.04+intensity*.16})`;
+    ctx.fillRect(r.x,r.y,r.w,r.h);
+  }
   ctx.restore();
 }
 
@@ -2594,26 +2596,6 @@ function drawLevel2BridgeRiseSplash(tile,ox,oy,progress){
 }
 
 
-function drawLevel2ExitDoorGlow(tile,ox,oy,intensity){
-  if(level2Phase!=="exit" || intensity<=0) return;
-
-  const r=level2DoorRect("right",tile,ox,oy);
-  const pulse=.45+.25*(.5+.5*Math.sin(Date.now()/210));
-
-  ctx.save();
-  ctx.globalCompositeOperation="screen";
-  ctx.shadowColor=`rgba(255,205,74,${pulse})`;
-  ctx.shadowBlur=tile*.42;
-  ctx.strokeStyle=`rgba(255,220,105,${pulse})`;
-  ctx.lineWidth=Math.max(2,tile*.055);
-  ctx.strokeRect(
-    r.x-tile*.035,
-    r.y-tile*.035,
-    r.w+tile*.07,
-    r.h+tile*.07
-  );
-  ctx.restore();
-}
 
 function drawLevel2Scene(tile,ox,oy,overview=false){
   const now=Date.now();
@@ -2863,9 +2845,23 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
     light?.[8]?.[rightDoorX-1]||0
   );
 
+  for(let y=6;y<=9;y++){
+    drawRaisedLevel2Tile(
+      tex.wall,
+      ox+rightDoorX*tile,
+      oy+y*tile,
+      tile,
+      tile*.52,
+      "#555",
+      null,
+      0,
+      1,
+      level2WallLightIntensity(rightDoorX,y,light)
+    );
+  }
+
   drawLevel2Door("left",tile,ox,oy,leftDoorLight);
   drawLevel2Door("right",tile,ox,oy,rightDoorLight);
-  drawLevel2ExitDoorGlow(tile,ox,oy,rightDoorLight);
 
   for(const t of L2_TORCHES){
     drawLevel2Torch(tile,ox,oy,t);
