@@ -696,6 +696,7 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
 <audio id="portalAudio" src="assets/portal_ambient.mp3" loop preload="auto"></audio>
 <audio id="splashAudio" src="assets/splash.mp3" preload="auto"></audio>
 <audio id="level2Audio" src="assets/level_2_ambient.mp3" loop preload="auto"></audio>
+<audio id="spookedAudio" src="assets/ambient_spooked.mp3" loop preload="auto"></audio>
 
 <section id="gameScreen">
   <canvas id="mazeCanvas"></canvas>
@@ -879,7 +880,7 @@ const L3_W = 20;
 const L3_H = 14;
 const L3_PLAYER_W = .72;
 const L3_PLAYER_H = .96;
-const L3_MOVE_SPEED = 4.2;
+const L3_MOVE_SPEED = 2.65;
 const L3_GRAVITY = 21;
 const L3_JUMP_SPEED = 8.6;
 const L3_GHOST = {x:1.85,y:2.85};
@@ -887,7 +888,7 @@ const L3_WINDOW = {x:5.2,y:.95,w:7.2,h:3.7};
 const L3_ENTRY_DOOR = {x:.1,y:10.35,w:1,h:2};
 const L3_EXIT_DOOR = {x:18.05,y:6.35,w:1,h:2};
 const L3_EXIT_TORCH = {x:17.15,y:6.65};
-const L3_RESPAWN = {x:1.45,y:12.4};
+const L3_RESPAWN = {x:1.65,y:12.35};
 const L3_COLLISION_STEP = .055;
 const L3_EXIT_LIGHT_RADIUS = L2_TORCH_RADIUS;
 const L3_GHOST_LIGHT_RADIUS = L2_TORCH_RADIUS;
@@ -1028,12 +1029,14 @@ const doorOpenAudio = $("doorOpenAudio");
 const portalAudio = $("portalAudio");
 const splashAudio = $("splashAudio");
 const level2Audio = $("level2Audio");
+const spookedAudio = $("spookedAudio");
 
 ambientAudio.volume = 0.14;
 doorOpenAudio.volume = 0.55;
 portalAudio.volume = 0.24;
 splashAudio.volume = 0.35;
 level2Audio.volume = 0.16;
+spookedAudio.volume = 0.16;
 
 
 function tryStartAmbient(){
@@ -1042,6 +1045,8 @@ function tryStartAmbient(){
 
   if(currentLevel===2){
     level2Audio.play().catch(()=>{});
+  }else if(currentLevel===3){
+    spookedAudio.play().catch(()=>{});
   }else{
     ambientAudio.play().catch(()=>{});
   }
@@ -3833,35 +3838,99 @@ function level3DrawGhost(tile,ox,oy,now=performance.now()){
     return;
   }
 
-  const img=tex.redGhost;
-  let frameSize;
-  let frames;
-  let sx=0;
-  let sy=0;
-
-  if(img.naturalHeight>=img.naturalWidth){
-    frameSize=img.naturalWidth;
-    frames=Math.max(1,Math.floor(img.naturalHeight/frameSize));
-    sy=(Math.floor(Date.now()/115)%frames)*frameSize;
-  }else{
-    frameSize=img.naturalHeight;
-    frames=Math.max(1,Math.floor(img.naturalWidth/frameSize));
-    sx=(Math.floor(Date.now()/115)%frames)*frameSize;
-  }
-
+  const frameW=48;
+  const frameH=48;
+  const frames=4;
+  const frame=Math.floor(Date.now()/115)%frames;
+  const sx=0;
+  const sy=frame*frameH;
   const size=tile*.92;
 
   ctx.drawImage(
-    img,
+    tex.redGhost,
     sx,
     sy,
-    frameSize,
-    frameSize,
+    frameW,
+    frameH,
     x-size/2,
     y-size/2,
     size,
     size
   );
+}
+
+function drawLevel3Window(tile,ox,oy,maps){
+  const wx=ox+L3_WINDOW.x*tile;
+  const wy=oy+L3_WINDOW.y*tile;
+  const ww=L3_WINDOW.w*tile;
+  const wh=L3_WINDOW.h*tile;
+
+  ctx.save();
+
+  ctx.fillStyle=maps.flash>.03
+    ? "rgba(188,221,255,.98)"
+    : "rgba(34,49,72,.96)";
+  ctx.fillRect(wx,wy,ww,wh);
+
+  const sky=ctx.createLinearGradient(wx,wy,wx,wy+wh);
+  sky.addColorStop(0,maps.flash>.03 ? "rgba(210,233,255,.48)" : "rgba(61,78,108,.32)");
+  sky.addColorStop(1,"rgba(8,13,24,.42)");
+  ctx.fillStyle=sky;
+  ctx.fillRect(wx,wy,ww,wh);
+
+  const rainOffset=(Date.now()/22)%tile;
+
+  for(let x=wx-tile;x<wx+ww+tile;x+=tile*.38){
+    const rx=x+rainOffset*.33;
+    ctx.strokeStyle=maps.flash>.03
+      ? "rgba(235,248,255,.72)"
+      : "rgba(142,184,224,.46)";
+    ctx.lineWidth=Math.max(1,tile*.022);
+    ctx.beginPath();
+    ctx.moveTo(rx,wy);
+    ctx.lineTo(rx-tile*.34,wy+tile*.62);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(rx+tile*.08,wy+tile*.72);
+    ctx.lineTo(rx-tile*.26,wy+tile*1.34);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(rx+tile*.16,wy+tile*1.46);
+    ctx.lineTo(rx-tile*.18,wy+tile*2.08);
+    ctx.stroke();
+  }
+
+  if(maps.flash>.03){
+    ctx.strokeStyle="rgba(255,255,255,.98)";
+    ctx.lineWidth=Math.max(2,tile*.055);
+    ctx.shadowColor="rgba(215,238,255,.9)";
+    ctx.shadowBlur=tile*.16;
+    ctx.beginPath();
+    ctx.moveTo(wx+ww*.26,wy+wh*.08);
+    ctx.lineTo(wx+ww*.37,wy+wh*.35);
+    ctx.lineTo(wx+ww*.32,wy+wh*.36);
+    ctx.lineTo(wx+ww*.47,wy+wh*.72);
+    ctx.stroke();
+    ctx.shadowBlur=0;
+  }
+
+  ctx.strokeStyle="#77735c";
+  ctx.lineWidth=Math.max(4,tile*.095);
+  ctx.strokeRect(wx,wy,ww,wh);
+
+  ctx.beginPath();
+  ctx.moveTo(wx+ww/2,wy);
+  ctx.lineTo(wx+ww/2,wy+wh);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(wx,wy+wh*.52);
+  ctx.lineTo(wx+ww,wy+wh*.52);
+  ctx.stroke();
+
+  ctx.restore();
 }
 
 function drawLevel3Player(p,tile,ox,oy){
@@ -3986,46 +4055,6 @@ function renderLevel3View(cameraX,cameraY,full=false){
     );
   }
 
-  const wx=ox+L3_WINDOW.x*tile;
-  const wy=oy+L3_WINDOW.y*tile;
-  const ww=L3_WINDOW.w*tile;
-  const wh=L3_WINDOW.h*tile;
-
-  ctx.fillStyle=maps.flash>.03
-    ? "rgba(195,224,255,.9)"
-    : "rgba(42,53,74,.92)";
-  ctx.fillRect(wx,wy,ww,wh);
-
-  ctx.strokeStyle="#6e6b58";
-  ctx.lineWidth=Math.max(3,tile*.08);
-  ctx.strokeRect(wx,wy,ww,wh);
-  ctx.beginPath();
-  ctx.moveTo(wx+ww/2,wy);
-  ctx.lineTo(wx+ww/2,wy+wh);
-  ctx.stroke();
-
-  for(let i=0;i<12;i++){
-    const rx=wx+((i*.83+((Date.now()/40)%24)/24)%1)*ww;
-    ctx.strokeStyle=maps.flash>.03
-      ? "rgba(238,248,255,.6)"
-      : "rgba(176,206,238,.22)";
-    ctx.lineWidth=Math.max(1,tile*.025);
-    ctx.beginPath();
-    ctx.moveTo(rx,wy+tile*.1);
-    ctx.lineTo(rx-tile*.2,wy+wh-tile*.08);
-    ctx.stroke();
-  }
-
-  if(maps.flash>.03){
-    ctx.strokeStyle="rgba(255,255,255,.96)";
-    ctx.lineWidth=Math.max(2,tile*.05);
-    ctx.beginPath();
-    ctx.moveTo(wx+ww*.24,wy+wh*.12);
-    ctx.lineTo(wx+ww*.34,wy+wh*.4);
-    ctx.lineTo(wx+ww*.3,wy+wh*.4);
-    ctx.lineTo(wx+ww*.44,wy+wh*.78);
-    ctx.stroke();
-  }
 
   for(const rect of level3StaticSolids()){
     if(rect.y<0 || rect.x<0) continue;
@@ -4035,6 +4064,14 @@ function renderLevel3View(cameraX,cameraY,full=false){
   level3DrawPlatformRect(level3MovingPlatform(now),tile,ox,oy);
   level3RenderDoor(L3_ENTRY_DOOR,tile,ox,oy,false);
   level3RenderDoor(L3_EXIT_DOOR,tile,ox,oy,true);
+
+  for(let y=0;y<L3_H;y++){
+    for(let x=0;x<L3_W;x++){
+      level3ApplyTileLighting(x,y,tile,ox,oy,maps);
+    }
+  }
+
+  drawLevel3Window(tile,ox,oy,maps);
   level3DrawAnimatedTorch(
     L3_EXIT_TORCH.x,
     L3_EXIT_TORCH.y,
@@ -4043,12 +4080,6 @@ function renderLevel3View(cameraX,cameraY,full=false){
     oy
   );
   level3DrawGhost(tile,ox,oy,now);
-
-  for(let y=0;y<L3_H;y++){
-    for(let x=0;x<L3_W;x++){
-      level3ApplyTileLighting(x,y,tile,ox,oy,maps);
-    }
-  }
 
   const players=Object.values(remotePlayers).filter(p=>
     !p.spectator &&
@@ -4150,6 +4181,7 @@ async function enterLevel3Portal(){
 
   ambientAudio.pause();
   level2Audio.pause();
+  spookedAudio.pause();
 
   const text=$("portalWait").querySelector(".portalText");
 
@@ -4175,7 +4207,7 @@ async function enterLevel3Portal(){
     finishingLevel=false;
     playerFinished=false;
     portalAudio.pause();
-    ambientAudio.play().catch(()=>{});
+    spookedAudio.play().catch(()=>{});
   }
 }
 
@@ -4214,7 +4246,7 @@ function updateLevel3Movement(mv,now=performance.now()){
     localPos={x:L3_RESPAWN.x,y:L3_RESPAWN.y};
     spectatorPos={...localPos};
     level3Vel={x:0,y:0};
-    level3OnGround=true;
+    level3OnGround=false;
     level3StandOnMoving=false;
   }
 
@@ -4251,9 +4283,10 @@ async function startLevel3(game){
   $("portalWait").classList.remove("show");
 
   portalAudio.pause();
+  ambientAudio.pause();
   level2Audio.pause();
-  ambientAudio.currentTime=0;
-  ambientAudio.play().catch(()=>{});
+  spookedAudio.currentTime=0;
+  spookedAudio.play().catch(()=>{});
 
   loginScreen.style.display="none";
   homeScreen.style.display="none";
@@ -4268,7 +4301,7 @@ async function startLevel3(game){
   resetMovementInput();
 
   level3Vel={x:0,y:0};
-  level3OnGround=true;
+  level3OnGround=false;
   level3LastMoveFrame=performance.now();
   level3PrevMovingY=level3MovingPlatformY(level3LastMoveFrame);
   level3StandOnMoving=false;
@@ -4347,6 +4380,7 @@ async function startLevel2(game){
 
   portalAudio.pause();
   ambientAudio.pause();
+  spookedAudio.pause();
   level2Audio.currentTime=0;
   level2Audio.play().catch(()=>{});
 
@@ -4583,6 +4617,8 @@ async function startLevel1(game){
   gameScreen.style.display="block";
   document.body.classList.add("game-running");
   document.body.style.overflow="hidden";
+  spookedAudio.pause();
+  level2Audio.pause();
   tryStartAmbient();
 
   const seed=game.levelSeed || game.startedAt || 1;
@@ -5223,6 +5259,7 @@ async function enterLevel2Portal(){
 
   ambientAudio.pause();
   level2Audio.pause();
+  spookedAudio.pause();
   $("portalWait").classList.add("show");
 
   try{
@@ -5276,6 +5313,7 @@ async function enterPortal(){
 
   ambientAudio.pause();
   level2Audio.pause();
+  spookedAudio.pause();
   $("portalWait").classList.add("show");
 
   try{
