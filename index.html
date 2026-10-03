@@ -769,6 +769,7 @@ const L2_EXIT_BRIDGE_H = L2_PLATFORM_H;
 const L2_MOVE_SPEED = 3.6;
 const L2_JUMP_SPEED_MULTIPLIER = 1.18;
 const L2_JUMP_DURATION = 520;
+const L2_FALL_DURATION = 520;
 const L2_TORCH_RADIUS = 3;
 const L2_TORCH_CORE_RADIUS = 1;
 const L2_TORCH_POWER = 0.72;
@@ -818,6 +819,8 @@ let level2PhaseWritePending = false;
 let level2LastPhase = "";
 let level2Jumping = false;
 let level2JumpStart = 0;
+let level2Falling = false;
+let level2FallStart = 0;
 let level2LastMoveFrame = 0;
 let level2ExitScreenRect = null;
 const avatarImageCache = new Map();
@@ -1942,6 +1945,42 @@ function canMoveLevel2(x,y){
   ].every(([px,py])=>level2CellSolid(Math.floor(px),Math.floor(py),now));
 }
 
+function level2HasSupport(x,y,now=Date.now()){
+  return level2CellSolid(Math.floor(x),Math.floor(y),now);
+}
+
+function level2FallOffset(now=performance.now()){
+  if(!level2Falling) return 0;
+  const p=Math.max(0,Math.min(1,(now-level2FallStart)/L2_FALL_DURATION));
+  return p*p;
+}
+
+function startLevel2Fall(){
+  if(
+    currentLevel!==2 ||
+    currentUser?.role==="spectator" ||
+    playerFinished ||
+    level2Drowning ||
+    level2Falling
+  ) return;
+
+  level2Jumping=false;
+  level2JumpStart=0;
+  level2Falling=true;
+  level2FallStart=performance.now();
+  resetMovementInput();
+}
+
+function updateLevel2Fall(now){
+  if(!level2Falling) return;
+
+  if(now-level2FallStart>=L2_FALL_DURATION){
+    level2Falling=false;
+    level2FallStart=0;
+    drownLevel2();
+  }
+}
+
 function canMoveLevel2InAir(x,y){
   const r=.24;
   return [
@@ -1965,8 +2004,9 @@ function startLevel2Jump(){
     currentUser?.role==="spectator" ||
     playerFinished ||
     level2Drowning ||
+    level2Falling ||
     level2Jumping ||
-    !canMoveLevel2(localPos.x,localPos.y)
+    !level2HasSupport(localPos.x,localPos.y)
   ) return;
 
   level2Jumping=true;
@@ -1980,8 +2020,8 @@ function updateLevel2Jump(now){
     level2Jumping=false;
     level2JumpStart=0;
 
-    if(!canMoveLevel2(localPos.x,localPos.y)){
-      drownLevel2();
+    if(!level2HasSupport(localPos.x,localPos.y)){
+      startLevel2Fall();
     }
   }
 }
@@ -2574,13 +2614,20 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
     if((light?.[ty]?.[tx]||0)<=0) continue;
 
     const sx=ox+(+p.x)*tile;
+    const isLocalPlayer=
+      p.uid===auth.currentUser?.uid &&
+      currentUser?.role!=="spectator";
     const isLocalJump=
       currentLevel===2 &&
       level2Jumping &&
-      p.uid===auth.currentUser?.uid &&
-      currentUser?.role!=="spectator";
+      isLocalPlayer;
+    const isLocalFall=
+      currentLevel===2 &&
+      level2Falling &&
+      isLocalPlayer;
     const jumpOffset=isLocalJump ? level2JumpLift()*tile*.72 : 0;
-    const sy=oy+(+p.y)*tile-tile*.16-jumpOffset;
+    const fallOffset=isLocalFall ? level2FallOffset()*tile*.92 : 0;
+    const sy=oy+(+p.y)*tile-tile*.16-jumpOffset+fallOffset;
 
     if(overview){
       drawSpectatorPlayer(
@@ -2737,6 +2784,8 @@ function drownLevel2(){
 
   level2Drowning=true;
   level2Jumping=false;
+  level2Falling=false;
+  level2FallStart=0;
   resetMovementInput();
   $("drownOverlay").classList.add("show");
 
@@ -2771,6 +2820,8 @@ async function startLevel2(game){
   $("drownOverlay").classList.remove("show");
   level2Jumping=false;
   level2JumpStart=0;
+  level2Falling=false;
+  level2FallStart=0;
   level2LastMoveFrame=performance.now();
   level2TransitionSent=false;
   level2PhaseWritePending=false;
@@ -3300,13 +3351,18 @@ function updateMovement(now=performance.now()){
     const dt=Math.min(.04,Math.max(0,(now-level2LastMoveFrame)/1000 || 0));
     level2LastMoveFrame=now;
 
+    if(level2Falling){
+      updateLevel2Fall(now);
+      return;
+    }
+
     updateLevel2Jump(now);
-    if(level2Drowning) return;
+    if(level2Drowning || level2Falling) return;
 
     moveLevel2Continuous(mv,dt);
 
-    if(!level2Jumping && !canMoveLevel2(localPos.x,localPos.y)){
-      drownLevel2();
+    if(!level2Jumping && !level2HasSupport(localPos.x,localPos.y)){
+      startLevel2Fall();
       return;
     }
 
