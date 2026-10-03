@@ -884,10 +884,14 @@ const L3_GRAVITY = 21;
 const L3_JUMP_SPEED = 8.6;
 const L3_GHOST = {x:1.85,y:2.85};
 const L3_WINDOW = {x:5.2,y:.95,w:7.2,h:3.7};
-const L3_ENTRY_DOOR = {x:18.05,y:6.35,w:1,h:2};
-const L3_EXIT_DOOR = {x:.1,y:10.35,w:1,h:2};
-const L3_EXIT_TORCH = {x:1.7,y:9.55};
-const L3_RESPAWN = {x:18.5,y:8.3};
+const L3_ENTRY_DOOR = {x:.1,y:10.35,w:1,h:2};
+const L3_EXIT_DOOR = {x:18.05,y:6.35,w:1,h:2};
+const L3_EXIT_TORCH = {x:17.15,y:6.65};
+const L3_RESPAWN = {x:1.45,y:12.4};
+const L3_COLLISION_STEP = .055;
+const L3_EXIT_LIGHT_RADIUS = L2_TORCH_RADIUS;
+const L3_GHOST_LIGHT_RADIUS = L2_TORCH_RADIUS;
+const L3_GHOST_LIGHT_POWER = L2_TORCH_POWER;
 
 
 let maze = null;
@@ -949,6 +953,7 @@ let level3PrevMovingY = 10.35;
 let level3StandOnMoving = false;
 let level3NextFlashAt = 0;
 let level3FlashUntil = 0;
+let level3ExitScreenRect = null;
 const avatarImageCache = new Map();
 
 let moveTarget = null;
@@ -1088,7 +1093,8 @@ for (const [k,u] of Object.entries({
   oak:"assets/oak_plank.png",
   spruce:"assets/spruce_plank.png",
   door:"assets/door.png",
-  torch:"assets/torch.png"
+  torch:"assets/torch.png",
+  redGhost:"assets/red_ghost.png"
 })) {
   tex[k] = new Image();
   tex[k].src = u;
@@ -3451,7 +3457,7 @@ function drownLevel2(){
 
 
 function level3MovingPlatformY(now=performance.now()){
-  return 10.15 + Math.sin(now/820)*1.08;
+  return 10.45 + Math.sin(now/820)*1.15;
 }
 
 function level3StaticSolids(){
@@ -3460,92 +3466,334 @@ function level3StaticSolids(){
     {x:L3_W,y:-1,w:1,h:L3_H+2},
     {x:0,y:-1,w:L3_W,h:1},
     {x:17,y:8.3,w:3,h:5.7},
-    {x:13.35,y:10.05,w:2.95,h:.55},
-    {x:9.25,y:11.1,w:2.6,h:.55},
-    {x:3.55,y:11.85,w:1.5,h:.55},
-    {x:0,y:12.4,w:4.2,h:1.6}
+    {x:13.25,y:9.95,w:3.05,h:.55},
+    {x:9.15,y:10.95,w:2.75,h:.55},
+    {x:3.45,y:11.75,w:1.65,h:.55},
+    {x:0,y:12.4,w:4.25,h:1.6}
   ];
 }
 
 function level3MovingPlatform(now=performance.now()){
-  return {x:5.95,y:level3MovingPlatformY(now),w:2.2,h:.55,moving:true};
+  return {x:5.85,y:level3MovingPlatformY(now),w:2.25,h:.55,moving:true};
 }
 
 function level3AllSolids(now=performance.now()){
-  return [...level3StaticSolids(), level3MovingPlatform(now)];
+  return [...level3StaticSolids(),level3MovingPlatform(now)];
 }
 
 function level3PlayerRect(x=localPos.x,y=localPos.y){
-  return {x:x-L3_PLAYER_W/2,y:y-L3_PLAYER_H,w:L3_PLAYER_W,h:L3_PLAYER_H};
+  return {
+    x:x-L3_PLAYER_W/2,
+    y:y-L3_PLAYER_H,
+    w:L3_PLAYER_W,
+    h:L3_PLAYER_H
+  };
 }
 
 function level3RectsOverlap(a,b){
-  return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y;
+  return (
+    a.x < b.x+b.w &&
+    a.x+a.w > b.x &&
+    a.y < b.y+b.h &&
+    a.y+a.h > b.y
+  );
 }
 
-function level3ResolveX(nextX,now=performance.now()){
-  let nx=nextX;
-  const rect=level3PlayerRect(nx,localPos.y);
-  for(const s of level3AllSolids(now)){
-    if(!level3RectsOverlap(rect,s)) continue;
-    if(level3Vel.x>0){
-      nx=s.x-L3_PLAYER_W/2;
-    }else if(level3Vel.x<0){
-      nx=s.x+s.w+L3_PLAYER_W/2;
+function level3MoveHorizontal(amount,now){
+  if(!amount) return;
+
+  const steps=Math.max(1,Math.ceil(Math.abs(amount)/L3_COLLISION_STEP));
+  const step=amount/steps;
+
+  for(let i=0;i<steps;i++){
+    localPos.x+=step;
+    const rect=level3PlayerRect();
+
+    for(const solid of level3AllSolids(now)){
+      if(!level3RectsOverlap(rect,solid)) continue;
+
+      if(step>0){
+        localPos.x=solid.x-L3_PLAYER_W/2;
+      }else{
+        localPos.x=solid.x+solid.w+L3_PLAYER_W/2;
+      }
+
+      level3Vel.x=0;
+      break;
     }
-    rect.x=nx-L3_PLAYER_W/2;
   }
-  return nx;
 }
 
-function level3ResolveY(nextY,now=performance.now()){
-  let ny=nextY;
-  let onGround=false;
-  let onMoving=false;
-  const rect=level3PlayerRect(localPos.x,ny);
-  for(const s of level3AllSolids(now)){
-    if(!level3RectsOverlap(rect,s)) continue;
-    if(level3Vel.y>=0){
-      ny=s.y;
-      onGround=true;
-      onMoving=!!s.moving;
-    }else{
-      ny=s.y+s.h+L3_PLAYER_H;
+function level3MoveVertical(amount,now){
+  if(!amount) return;
+
+  const steps=Math.max(1,Math.ceil(Math.abs(amount)/L3_COLLISION_STEP));
+  const step=amount/steps;
+
+  for(let i=0;i<steps;i++){
+    localPos.y+=step;
+    const rect=level3PlayerRect();
+
+    for(const solid of level3AllSolids(now)){
+      if(!level3RectsOverlap(rect,solid)) continue;
+
+      if(step>0){
+        localPos.y=solid.y;
+        level3OnGround=true;
+        level3StandOnMoving=!!solid.moving;
+      }else{
+        localPos.y=solid.y+solid.h+L3_PLAYER_H;
+      }
+
+      level3Vel.y=0;
+      break;
     }
-    level3Vel.y=0;
-    rect.y=ny-L3_PLAYER_H;
   }
-  return {y:ny,onGround,onMoving};
 }
 
-function level3PlayerCenterY(p,isLocal=false){
-  const jumpOffset=0;
-  return p.y-L3_PLAYER_H*.55-jumpOffset;
+function level3ProbeGround(now){
+  const rect=level3PlayerRect(localPos.x,localPos.y+.045);
+
+  for(const solid of level3AllSolids(now)){
+    if(!level3RectsOverlap(rect,solid)) continue;
+
+    if(localPos.y>=solid.y-.08 && localPos.y<=solid.y+.12){
+      level3OnGround=true;
+      level3StandOnMoving=!!solid.moving;
+      return;
+    }
+  }
+
+  level3OnGround=false;
+  level3StandOnMoving=false;
 }
 
-function level3RenderDoor(rect,tile,ox,oy){
+function level3MaybeFlash(now=performance.now()){
+  if(now>=level3NextFlashAt){
+    level3FlashUntil=now+160+Math.random()*150;
+    level3NextFlashAt=now+3200+Math.random()*4700;
+  }
+
+  if(now>=level3FlashUntil) return 0;
+  return Math.max(0,Math.min(1,(level3FlashUntil-now)/230));
+}
+
+function level3GhostPath(now=performance.now()){
+  const t=now/900;
+  return {
+    x:L3_GHOST.x+Math.sin(t)*.16,
+    y:L3_GHOST.y+Math.cos(t*1.18)*.13
+  };
+}
+
+function level3AddLight(map,sx,sy,radius,power=1){
+  const minX=Math.max(0,Math.floor(sx-radius));
+  const maxX=Math.min(L3_W-1,Math.ceil(sx+radius));
+  const minY=Math.max(0,Math.floor(sy-radius));
+  const maxY=Math.min(L3_H-1,Math.ceil(sy+radius));
+
+  for(let y=minY;y<=maxY;y++){
+    for(let x=minX;x<=maxX;x++){
+      const dx=(x+.5)-sx;
+      const dy=(y+.5)-sy;
+      const d=Math.hypot(dx,dy);
+
+      if(d>radius) continue;
+
+      let strength;
+
+      if(d<=1){
+        strength=power;
+      }else{
+        const t=Math.max(0,1-(d-1)/(radius-1));
+        const fade=t*t*(3-2*t);
+        strength=fade*power;
+      }
+
+      map[y][x]=Math.max(map[y][x],strength);
+    }
+  }
+}
+
+function buildLevel3LightMaps(now=performance.now()){
+  const warm=Array.from({length:L3_H},()=>Array(L3_W).fill(0));
+  const red=Array.from({length:L3_H},()=>Array(L3_W).fill(0));
+  const blue=Array.from({length:L3_H},()=>Array(L3_W).fill(0));
+
+  if(currentUser?.role!=="spectator"){
+    level3AddLight(warm,localPos.x,localPos.y-.45,LIGHT_RADIUS,1);
+  }
+
+  for(const p of Object.values(remotePlayers)){
+    if(
+      p.spectator ||
+      p.level!==3 ||
+      p.finishedLevel3 ||
+      p.x==null ||
+      p.y==null
+    ) continue;
+
+    if(
+      p.uid===auth.currentUser?.uid &&
+      currentUser?.role!=="spectator"
+    ) continue;
+
+    level3AddLight(warm,+p.x,+p.y-.45,LIGHT_RADIUS,1);
+  }
+
+  level3AddLight(
+    warm,
+    L3_EXIT_TORCH.x,
+    L3_EXIT_TORCH.y-.2,
+    L3_EXIT_LIGHT_RADIUS,
+    L2_TORCH_POWER
+  );
+
+  const ghost=level3GhostPath(now);
+
+  level3AddLight(
+    red,
+    ghost.x,
+    ghost.y,
+    L3_GHOST_LIGHT_RADIUS,
+    L3_GHOST_LIGHT_POWER
+  );
+
+  const flash=level3MaybeFlash(now);
+
+  if(flash>0){
+    level3AddLight(
+      blue,
+      L3_WINDOW.x+L3_WINDOW.w*.5,
+      L3_WINDOW.y+L3_WINDOW.h*.55,
+      6.5,
+      Math.min(1,.25+flash*.75)
+    );
+  }
+
+  return {warm,red,blue,flash};
+}
+
+function level3LightAt(maps,x,y){
+  const warm=maps.warm?.[y]?.[x]||0;
+  const red=maps.red?.[y]?.[x]||0;
+  const blue=maps.blue?.[y]?.[x]||0;
+
+  return {
+    warm,
+    red,
+    blue,
+    total:Math.max(warm,red,blue)
+  };
+}
+
+function level3ApplyTileLighting(x,y,tile,ox,oy,maps){
+  const light=level3LightAt(maps,x,y);
+  const px=ox+x*tile;
+  const py=oy+y*tile;
+
+  if(light.total<=0){
+    ctx.fillStyle="#000";
+    ctx.fillRect(px,py,tile+1,tile+1);
+    return;
+  }
+
+  const darkness=Math.max(0,.84-light.total*.84);
+
+  if(darkness>0){
+    ctx.fillStyle=`rgba(0,0,0,${darkness})`;
+    ctx.fillRect(px,py,tile+1,tile+1);
+  }
+
+  if(light.warm>0){
+    ctx.fillStyle=`rgba(255,183,72,${light.warm*.13})`;
+    ctx.fillRect(px,py,tile+1,tile+1);
+  }
+
+  if(light.red>0){
+    ctx.fillStyle=`rgba(255,45,45,${light.red*.22})`;
+    ctx.fillRect(px,py,tile+1,tile+1);
+  }
+
+  if(light.blue>0){
+    ctx.fillStyle=`rgba(170,210,255,${light.blue*.19})`;
+    ctx.fillRect(px,py,tile+1,tile+1);
+  }
+}
+
+function level3SceneRect(cameraX,cameraY,tile){
+  let ox=innerWidth/2-cameraX*tile;
+  let oy=innerHeight/2-cameraY*tile;
+  const minOx=innerWidth-L3_W*tile;
+  const minOy=innerHeight-L3_H*tile;
+
+  ox=Math.min(0,Math.max(minOx,ox));
+  oy=Math.min(0,Math.max(minOy,oy));
+
+  if(L3_W*tile<innerWidth) ox=(innerWidth-L3_W*tile)/2;
+  if(L3_H*tile<innerHeight) oy=(innerHeight-L3_H*tile)/2;
+
+  return {ox,oy};
+}
+
+function level3DrawTileImage(img,x,y,size){
+  if(img.complete && img.naturalWidth){
+    ctx.drawImage(img,x,y,size,size);
+  }else{
+    ctx.fillStyle="#555";
+    ctx.fillRect(x,y,size,size);
+  }
+}
+
+function level3DrawPlatformRect(rect,tile,ox,oy){
+  const startX=Math.floor(rect.x);
+  const endX=Math.ceil(rect.x+rect.w);
+  const startY=Math.floor(rect.y);
+  const endY=Math.ceil(rect.y+rect.h);
+
+  for(let ty=startY;ty<endY;ty++){
+    for(let tx=startX;tx<endX;tx++){
+      const img=(tx+ty)%9===0 ? tex.moss : tex.wall;
+      level3DrawTileImage(
+        img,
+        ox+tx*tile,
+        oy+ty*tile,
+        tile
+      );
+    }
+  }
+}
+
+function level3RenderDoor(rect,tile,ox,oy,exit=false){
   const x=ox+rect.x*tile;
   const y=oy+rect.y*tile;
   const w=rect.w*tile;
   const h=rect.h*tile;
-  ctx.save();
-  if(tex.door.complete && tex.door.naturalWidth){
-    ctx.drawImage(tex.door,x,y,w,h);
+
+  if(exit){
+    level3ExitScreenRect={x,y,w,h};
+  }
+
+  const img=exit ? tex.doorUnlocked : tex.door;
+
+  if(img.complete && img.naturalWidth){
+    ctx.drawImage(img,x,y,w,h);
   }else{
-    ctx.fillStyle="#7a512f";
+    ctx.fillStyle=exit ? "#ddb84a" : "#7a512f";
     ctx.fillRect(x,y,w,h);
   }
-  ctx.restore();
 }
 
 function level3DrawAnimatedTorch(x,y,tile,ox,oy){
   if(!tex.torch.complete || !tex.torch.naturalWidth) return;
+
   const img=tex.torch;
   const now=Date.now();
   let frameSize;
   let frames;
   let sx=0;
   let sy=0;
+
   if(img.naturalHeight>=img.naturalWidth){
     frameSize=img.naturalWidth;
     frames=Math.max(1,Math.floor(img.naturalHeight/frameSize));
@@ -3555,111 +3803,92 @@ function level3DrawAnimatedTorch(x,y,tile,ox,oy){
     frames=Math.max(1,Math.floor(img.naturalWidth/frameSize));
     sx=(Math.floor(now/110)%frames)*frameSize;
   }
+
   const h=tile*.82;
-  const w=tile*.28;
-  ctx.drawImage(img,sx,sy,frameSize,frameSize,ox+x*tile-w/2,oy+y*tile-h*.72,w,h);
-}
+  const w=tile*.32;
 
-function level3MaybeFlash(now=performance.now()){
-  if(now>=level3NextFlashAt){
-    level3FlashUntil=now+180+Math.random()*120;
-    level3NextFlashAt=now+3500+Math.random()*4500;
-  }
-  return Math.max(0,Math.min(1,(level3FlashUntil-now)/220));
-}
-
-function level3GhostPath(now=performance.now()){
-  const t=now/900;
-  return {
-    x:L3_GHOST.x+Math.sin(t)*.18,
-    y:L3_GHOST.y+Math.cos(t*1.2)*.16
-  };
+  ctx.drawImage(
+    img,
+    sx,
+    sy,
+    frameSize,
+    frameSize,
+    ox+x*tile-w/2,
+    oy+y*tile-h*.72,
+    w,
+    h
+  );
 }
 
 function level3DrawGhost(tile,ox,oy,now=performance.now()){
   const g=level3GhostPath(now);
   const x=ox+g.x*tile;
   const y=oy+g.y*tile;
-  ctx.save();
-  ctx.translate(x,y);
-  ctx.scale(tile/64,tile/64);
-  ctx.fillStyle="rgba(255,74,74,.9)";
-  ctx.beginPath();
-  ctx.moveTo(-18,-18);
-  ctx.quadraticCurveTo(0,-38,18,-18);
-  ctx.lineTo(18,8);
-  ctx.lineTo(11,14);
-  ctx.lineTo(6,8);
-  ctx.lineTo(0,14);
-  ctx.lineTo(-6,8);
-  ctx.lineTo(-12,14);
-  ctx.lineTo(-18,8);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle="#1a0505";
-  ctx.beginPath();
-  ctx.arc(-6,-10,3,0,Math.PI*2);
-  ctx.arc(6,-10,3,0,Math.PI*2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.moveTo(-8,2);
-  ctx.quadraticCurveTo(0,10,8,2);
-  ctx.strokeStyle="#1a0505";
-  ctx.lineWidth=3;
-  ctx.stroke();
-  ctx.restore();
-}
 
-function level3SceneRect(cameraX,cameraY,tile){
-  let ox=innerWidth/2-cameraX*tile;
-  let oy=innerHeight/2-cameraY*tile;
-  const minOx=innerWidth-L3_W*tile;
-  const minOy=innerHeight-L3_H*tile;
-  ox=Math.min(0,Math.max(minOx,ox));
-  oy=Math.min(0,Math.max(minOy,oy));
-  if(L3_W*tile<innerWidth) ox=(innerWidth-L3_W*tile)/2;
-  if(L3_H*tile<innerHeight) oy=(innerHeight-L3_H*tile)/2;
-  return {ox,oy};
-}
+  if(!tex.redGhost.complete || !tex.redGhost.naturalWidth){
+    ctx.fillStyle="rgba(255,65,65,.9)";
+    ctx.beginPath();
+    ctx.arc(x,y,tile*.36,0,Math.PI*2);
+    ctx.fill();
+    return;
+  }
 
-function level3DrawTileImage(img,x,y,size,alpha=1){
-  ctx.save();
-  ctx.globalAlpha=alpha;
-  if(img.complete && img.naturalWidth){
-    ctx.drawImage(img,x,y,size,size);
+  const img=tex.redGhost;
+  let frameSize;
+  let frames;
+  let sx=0;
+  let sy=0;
+
+  if(img.naturalHeight>=img.naturalWidth){
+    frameSize=img.naturalWidth;
+    frames=Math.max(1,Math.floor(img.naturalHeight/frameSize));
+    sy=(Math.floor(Date.now()/115)%frames)*frameSize;
   }else{
-    ctx.fillStyle="#555";
-    ctx.fillRect(x,y,size,size);
+    frameSize=img.naturalHeight;
+    frames=Math.max(1,Math.floor(img.naturalWidth/frameSize));
+    sx=(Math.floor(Date.now()/115)%frames)*frameSize;
   }
-  ctx.restore();
-}
 
-function level3DrawPlatformRect(rect,tile,ox,oy){
-  const startX=Math.floor(rect.x);
-  const endX=Math.ceil(rect.x+rect.w);
-  const startY=Math.floor(rect.y);
-  const endY=Math.ceil(rect.y+rect.h);
-  for(let ty=startY;ty<endY;ty++){
-    for(let tx=startX;tx<endX;tx++){
-      const px=ox+tx*tile;
-      const py=oy+ty*tile;
-      level3DrawTileImage(((tx+ty)%9===0?tex.moss:tex.wall),px,py,tile);
-    }
-  }
+  const size=tile*.92;
+
+  ctx.drawImage(
+    img,
+    sx,
+    sy,
+    frameSize,
+    frameSize,
+    x-size/2,
+    y-size/2,
+    size,
+    size
+  );
 }
 
 function drawLevel3Player(p,tile,ox,oy){
   const sx=ox+p.x*tile;
-  const sy=oy+level3PlayerCenterY(p,p.uid===auth.currentUser?.uid)*tile;
+  const sy=oy+(p.y-L3_PLAYER_H*.55)*tile;
   const r=Math.max(12,tile*.22);
   const im=getAvatarImage(p);
+
   ctx.save();
   ctx.beginPath();
   ctx.arc(sx,sy,r,0,Math.PI*2);
   ctx.clip();
+
   if(im && im.complete && im.naturalWidth){
     const side=Math.min(im.naturalWidth,im.naturalHeight);
-    ctx.drawImage(im,(im.naturalWidth-side)/2,(im.naturalHeight-side)/2,side,side,sx-r,sy-r,r*2,r*2);
+
+    ctx.drawImage(
+      im,
+      (im.naturalWidth-side)/2,
+      (im.naturalHeight-side)/2,
+      side,
+      side,
+      sx-r,
+      sy-r,
+      r*2,
+      r*2
+    );
   }else{
     ctx.fillStyle=p.host ? "#d6b25e" : "#b8b8bd";
     ctx.fillRect(sx-r,sy-r,r*2,r*2);
@@ -3669,12 +3898,15 @@ function drawLevel3Player(p,tile,ox,oy){
     ctx.textBaseline="middle";
     ctx.fillText((p.name||"?").trim().charAt(0).toUpperCase(),sx,sy+1);
   }
+
   ctx.restore();
+
   ctx.beginPath();
   ctx.arc(sx,sy,r+1,0,Math.PI*2);
   ctx.strokeStyle="#fff";
   ctx.lineWidth=2;
   ctx.stroke();
+
   ctx.font=`900 ${Math.max(11,tile*.16)}px system-ui`;
   ctx.textAlign="center";
   ctx.textBaseline="bottom";
@@ -3692,37 +3924,78 @@ function renderLevel3View(cameraX,cameraY,full=false){
   ctx.fillStyle="#000";
   ctx.fillRect(0,0,innerWidth,innerHeight);
 
-  const tile=full ? Math.min((innerWidth-24)/L3_W,(innerHeight-24)/L3_H) : TILE;
-  const scene=full ? {ox:(innerWidth-L3_W*tile)/2,oy:(innerHeight-L3_H*tile)/2} : level3SceneRect(cameraX,cameraY,tile);
+  const tile=full
+    ? Math.min((innerWidth-24)/L3_W,(innerHeight-24)/L3_H)
+    : TILE;
+
+  const scene=full
+    ? {
+        ox:(innerWidth-L3_W*tile)/2,
+        oy:(innerHeight-L3_H*tile)/2
+      }
+    : level3SceneRect(cameraX,cameraY,tile);
+
   const ox=scene.ox;
   const oy=scene.oy;
   const now=performance.now();
-  const flash=level3MaybeFlash(now);
+  const maps=buildLevel3LightMaps(now);
 
   ctx.fillStyle="#050505";
   ctx.fillRect(ox,oy,L3_W*tile,L3_H*tile);
 
   for(let y=1;y<L3_H-1;y++){
     for(let x=1;x<L3_W-1;x++){
-      level3DrawTileImage(tex.dirt,ox+x*tile,oy+y*tile,tile,.88);
+      level3DrawTileImage(
+        tex.dirt,
+        ox+x*tile,
+        oy+y*tile,
+        tile
+      );
     }
   }
 
   for(let x=0;x<L3_W;x++){
-    level3DrawTileImage(((x%6===0)||(x%11===0)?tex.moss:tex.wall),ox+x*tile,oy,tile);
-    level3DrawTileImage((((x+3)%7===0)||((x+2)%13===0)?tex.moss:tex.wall),ox+x*tile,oy+(L3_H-1)*tile,tile);
+    level3DrawTileImage(
+      (x%6===0 || x%11===0) ? tex.moss : tex.wall,
+      ox+x*tile,
+      oy,
+      tile
+    );
+
+    level3DrawTileImage(
+      ((x+3)%7===0 || (x+2)%13===0) ? tex.moss : tex.wall,
+      ox+x*tile,
+      oy+(L3_H-1)*tile,
+      tile
+    );
   }
+
   for(let y=1;y<L3_H-1;y++){
-    level3DrawTileImage(((y%5===0)?tex.moss:tex.wall),ox,oy+y*tile,tile);
-    level3DrawTileImage((((y+2)%6===0)?tex.moss:tex.wall),ox+(L3_W-1)*tile,oy+y*tile,tile);
+    level3DrawTileImage(
+      y%5===0 ? tex.moss : tex.wall,
+      ox,
+      oy+y*tile,
+      tile
+    );
+
+    level3DrawTileImage(
+      (y+2)%6===0 ? tex.moss : tex.wall,
+      ox+(L3_W-1)*tile,
+      oy+y*tile,
+      tile
+    );
   }
 
   const wx=ox+L3_WINDOW.x*tile;
   const wy=oy+L3_WINDOW.y*tile;
   const ww=L3_WINDOW.w*tile;
   const wh=L3_WINDOW.h*tile;
-  ctx.fillStyle=flash>.03 ? "rgba(188,222,255,.78)" : "rgba(72,88,116,.6)";
+
+  ctx.fillStyle=maps.flash>.03
+    ? "rgba(195,224,255,.9)"
+    : "rgba(42,53,74,.92)";
   ctx.fillRect(wx,wy,ww,wh);
+
   ctx.strokeStyle="#6e6b58";
   ctx.lineWidth=Math.max(3,tile*.08);
   ctx.strokeRect(wx,wy,ww,wh);
@@ -3730,23 +4003,27 @@ function renderLevel3View(cameraX,cameraY,full=false){
   ctx.moveTo(wx+ww/2,wy);
   ctx.lineTo(wx+ww/2,wy+wh);
   ctx.stroke();
-  for(let i=0;i<11;i++){
-    const rx=wx+((i*.91+((Date.now()/35)%20)/20)%1)*ww;
-    ctx.strokeStyle=flash>.03 ? "rgba(236,246,255,.48)" : "rgba(196,224,255,.22)";
-    ctx.lineWidth=Math.max(1,tile*.03);
+
+  for(let i=0;i<12;i++){
+    const rx=wx+((i*.83+((Date.now()/40)%24)/24)%1)*ww;
+    ctx.strokeStyle=maps.flash>.03
+      ? "rgba(238,248,255,.6)"
+      : "rgba(176,206,238,.22)";
+    ctx.lineWidth=Math.max(1,tile*.025);
     ctx.beginPath();
-    ctx.moveTo(rx,wy+tile*.12);
-    ctx.lineTo(rx-tile*.22,wy+wh-tile*.12);
+    ctx.moveTo(rx,wy+tile*.1);
+    ctx.lineTo(rx-tile*.2,wy+wh-tile*.08);
     ctx.stroke();
   }
-  if(flash>.03){
-    ctx.strokeStyle="rgba(245,250,255,.95)";
+
+  if(maps.flash>.03){
+    ctx.strokeStyle="rgba(255,255,255,.96)";
     ctx.lineWidth=Math.max(2,tile*.05);
     ctx.beginPath();
-    ctx.moveTo(wx+ww*.22,wy+wh*.18);
-    ctx.lineTo(wx+ww*.33,wy+wh*.42);
-    ctx.lineTo(wx+ww*.29,wy+wh*.42);
-    ctx.lineTo(wx+ww*.43,wy+wh*.74);
+    ctx.moveTo(wx+ww*.24,wy+wh*.12);
+    ctx.lineTo(wx+ww*.34,wy+wh*.4);
+    ctx.lineTo(wx+ww*.3,wy+wh*.4);
+    ctx.lineTo(wx+ww*.44,wy+wh*.78);
     ctx.stroke();
   }
 
@@ -3754,78 +4031,36 @@ function renderLevel3View(cameraX,cameraY,full=false){
     if(rect.y<0 || rect.x<0) continue;
     level3DrawPlatformRect(rect,tile,ox,oy);
   }
-  level3DrawPlatformRect(level3MovingPlatform(now),tile,ox,oy);
 
-  level3RenderDoor(L3_ENTRY_DOOR,tile,ox,oy);
-  level3RenderDoor(L3_EXIT_DOOR,tile,ox,oy);
-  level3DrawAnimatedTorch(L3_EXIT_TORCH.x,L3_EXIT_TORCH.y,tile,ox,oy);
+  level3DrawPlatformRect(level3MovingPlatform(now),tile,ox,oy);
+  level3RenderDoor(L3_ENTRY_DOOR,tile,ox,oy,false);
+  level3RenderDoor(L3_EXIT_DOOR,tile,ox,oy,true);
+  level3DrawAnimatedTorch(
+    L3_EXIT_TORCH.x,
+    L3_EXIT_TORCH.y,
+    tile,
+    ox,
+    oy
+  );
   level3DrawGhost(tile,ox,oy,now);
 
-  ctx.save();
-  ctx.fillStyle="rgba(0,0,0,.9)";
-  ctx.fillRect(0,0,innerWidth,innerHeight);
-  ctx.globalCompositeOperation="destination-out";
-  const lightSources=[
-    {x:L3_EXIT_TORCH.x,y:L3_EXIT_TORCH.y-.15,r:3.25,a:.96},
-    {x:L3_GHOST.x+.1,y:L3_GHOST.y-.05,r:3.3,a:.92},
-    {x:L3_WINDOW.x+L3_WINDOW.w*.5/tile,y:L3_WINDOW.y+L3_WINDOW.h*.5/tile,r:0,a:0}
-  ];
-  const gpos=level3GhostPath(now);
-  lightSources[1].x=gpos.x;
-  lightSources[1].y=gpos.y;
-  for(const s of lightSources.slice(0,2)){
-    const gx=ox+s.x*tile;
-    const gy=oy+s.y*tile;
-    const grad=ctx.createRadialGradient(gx,gy,tile*.15,gx,gy,tile*s.r);
-    grad.addColorStop(0,`rgba(255,255,255,${s.a})`);
-    grad.addColorStop(.32,`rgba(255,255,255,${s.a*.7})`);
-    grad.addColorStop(.75,"rgba(255,255,255,.18)");
-    grad.addColorStop(1,"rgba(255,255,255,0)");
-    ctx.fillStyle=grad;
-    ctx.beginPath();
-    ctx.arc(gx,gy,tile*s.r,0,Math.PI*2);
-    ctx.fill();
+  for(let y=0;y<L3_H;y++){
+    for(let x=0;x<L3_W;x++){
+      level3ApplyTileLighting(x,y,tile,ox,oy,maps);
+    }
   }
-  if(flash>.03){
-    const gx=wx+ww/2;
-    const gy=wy+wh/2;
-    const grad=ctx.createRadialGradient(gx,gy,tile*.5,gx,gy,tile*6.4);
-    grad.addColorStop(0,`rgba(255,255,255,${.65*flash+.15})`);
-    grad.addColorStop(.5,`rgba(255,255,255,${.22*flash})`);
-    grad.addColorStop(1,"rgba(255,255,255,0)");
-    ctx.fillStyle=grad;
-    ctx.beginPath();
-    ctx.arc(gx,gy,tile*6.4,0,Math.PI*2);
-    ctx.fill();
-  }
-  ctx.restore();
 
-  ctx.save();
-  ctx.globalCompositeOperation="screen";
-  let gx=ox+gpos.x*tile;
-  let gy=oy+gpos.y*tile;
-  let grad=ctx.createRadialGradient(gx,gy,tile*.1,gx,gy,tile*2.65);
-  grad.addColorStop(0,"rgba(255,115,115,.42)");
-  grad.addColorStop(1,"rgba(255,40,40,0)");
-  ctx.fillStyle=grad;
-  ctx.beginPath();
-  ctx.arc(gx,gy,tile*2.65,0,Math.PI*2);
-  ctx.fill();
+  const players=Object.values(remotePlayers).filter(p=>
+    !p.spectator &&
+    p.level===3 &&
+    !p.finishedLevel3 &&
+    p.x!=null &&
+    p.y!=null
+  );
 
-  gx=ox+L3_EXIT_TORCH.x*tile;
-  gy=oy+(L3_EXIT_TORCH.y-.15)*tile;
-  grad=ctx.createRadialGradient(gx,gy,tile*.08,gx,gy,tile*2.8);
-  grad.addColorStop(0,"rgba(255,208,122,.36)");
-  grad.addColorStop(1,"rgba(255,164,64,0)");
-  ctx.fillStyle=grad;
-  ctx.beginPath();
-  ctx.arc(gx,gy,tile*2.8,0,Math.PI*2);
-  ctx.fill();
-  ctx.restore();
-
-  const players=Object.values(remotePlayers).filter(p=>!p.spectator && p.level===3 && !p.finishedLevel3 && p.x!=null && p.y!=null);
   if(currentUser?.role!=="spectator" && !playerFinished){
     const mine=players.find(p=>p.uid===auth.currentUser?.uid);
+
     if(!mine){
       players.push({
         uid:auth.currentUser?.uid,
@@ -3838,8 +4073,21 @@ function renderLevel3View(cameraX,cameraY,full=false){
       });
     }
   }
+
   for(const p of players){
-    drawLevel3Player(p,tile,ox,oy);
+    const tx=Math.max(
+      0,
+      Math.min(L3_W-1,Math.floor(+p.x))
+    );
+    const ty=Math.max(
+      0,
+      Math.min(L3_H-1,Math.floor(+p.y-.45))
+    );
+    const light=level3LightAt(maps,tx,ty);
+
+    if(light.total>.03 || p.uid===auth.currentUser?.uid){
+      drawLevel3Player(p,tile,ox,oy);
+    }
   }
 }
 
@@ -3847,6 +4095,7 @@ function renderLevel3(){
   if(currentUser?.role==="spectator"){
     if(followUid){
       const p=remotePlayers[followUid];
+
       if(p?.level===3 && p.x!=null && p.y!=null){
         renderLevel3View(+p.x,+p.y,false);
       }else{
@@ -3855,8 +4104,10 @@ function renderLevel3(){
     }else{
       renderLevel3View(L3_W/2,L3_H/2,true);
     }
+
     return;
   }
+
   renderLevel3View(localPos.x,localPos.y,false);
 }
 
@@ -3867,41 +4118,114 @@ function startLevel3Jump(){
     playerFinished ||
     !level3OnGround
   ) return;
+
   level3Vel.y=-L3_JUMP_SPEED;
   level3OnGround=false;
   level3StandOnMoving=false;
 }
 
+function nearLevel3ExitDoor(){
+  return (
+    currentLevel===3 &&
+    localPos.x>=17.25 &&
+    localPos.x<=19.15 &&
+    localPos.y>=7.9 &&
+    localPos.y<=8.55
+  );
+}
+
+async function enterLevel3Portal(){
+  if(
+    currentLevel!==3 ||
+    currentUser?.role==="spectator" ||
+    playerFinished ||
+    finishingLevel ||
+    !nearLevel3ExitDoor()
+  ) return;
+
+  finishingLevel=true;
+  playerFinished=true;
+  level3Vel={x:0,y:0};
+  resetMovementInput();
+
+  ambientAudio.pause();
+  level2Audio.pause();
+
+  const text=$("portalWait").querySelector(".portalText");
+
+  if(text){
+    text.textContent="Oczekiwanie aż wszyscy przejdą przez Kamienne Ruiny Schodów";
+  }
+
+  $("portalWait").classList.add("show");
+
+  try{
+    portalAudio.currentTime=0;
+    portalAudio.play().catch(()=>{});
+
+    await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
+      x:+localPos.x.toFixed(3),
+      y:+localPos.y.toFixed(3),
+      level:3,
+      finishedLevel3:true
+    });
+  }catch(err){
+    console.error(err);
+    $("portalWait").classList.remove("show");
+    finishingLevel=false;
+    playerFinished=false;
+    portalAudio.pause();
+    ambientAudio.play().catch(()=>{});
+  }
+}
+
 function updateLevel3Movement(mv,now=performance.now()){
-  const dt=Math.min(.033,Math.max(0,(now-level3LastMoveFrame)/1000 || 0));
+  const dt=Math.min(
+    .033,
+    Math.max(0,(now-level3LastMoveFrame)/1000 || 0)
+  );
+
   level3LastMoveFrame=now;
 
   const movingY=level3MovingPlatformY(now);
+
   if(level3StandOnMoving && level3OnGround){
-    localPos.y += movingY-level3PrevMovingY;
+    localPos.y+=movingY-level3PrevMovingY;
   }
+
   level3PrevMovingY=movingY;
-
   level3Vel.x=mv.x*L3_MOVE_SPEED;
-  localPos.x=level3ResolveX(localPos.x+level3Vel.x*dt,now);
 
-  level3Vel.y=Math.min(16,level3Vel.y+L3_GRAVITY*dt);
-  const resolved=level3ResolveY(localPos.y+level3Vel.y*dt,now);
-  localPos.y=resolved.y;
-  level3OnGround=resolved.onGround;
-  level3StandOnMoving=resolved.onMoving;
+  level3MoveHorizontal(level3Vel.x*dt,now);
 
-  if(localPos.x<.55) localPos.x=.55;
-  if(localPos.x>L3_W-.55) localPos.x=L3_W-.55;
+  level3OnGround=false;
+  level3StandOnMoving=false;
+  level3Vel.y=Math.min(15,level3Vel.y+L3_GRAVITY*dt);
 
-  if(localPos.y>L3_H+1.5){
+  level3MoveVertical(level3Vel.y*dt,now);
+  level3ProbeGround(now);
+
+  localPos.x=Math.max(
+    L3_PLAYER_W/2,
+    Math.min(L3_W-L3_PLAYER_W/2,localPos.x)
+  );
+
+  if(localPos.y>L3_H+1.25){
     localPos={x:L3_RESPAWN.x,y:L3_RESPAWN.y};
+    spectatorPos={...localPos};
     level3Vel={x:0,y:0};
-    level3OnGround=false;
+    level3OnGround=true;
+    level3StandOnMoving=false;
+  }
+
+  if(nearLevel3ExitDoor()){
+    enterLevel3Portal();
+    return;
   }
 
   if(Date.now()-lastPosWrite>75){
     lastPosWrite=Date.now();
+
     update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
       x:+localPos.x.toFixed(3),
       y:+localPos.y.toFixed(3),
@@ -3920,6 +4244,7 @@ async function startLevel3(game){
   level2BubbleSolved=false;
   level2BubbleShowing=false;
   level2BubblePlaybackToken++;
+
   $("bubbleSequence").classList.remove("show");
   $("bubbleSequence").classList.add("hidden");
   $("drownOverlay").classList.remove("show");
@@ -3938,9 +4263,10 @@ async function startLevel3(game){
   document.body.style.overflow="hidden";
 
   localPos={x:L3_RESPAWN.x,y:L3_RESPAWN.y};
-  spectatorPos={x:localPos.x,y:localPos.y};
+  spectatorPos={...localPos};
   moveTarget=null;
   resetMovementInput();
+
   level3Vel={x:0,y:0};
   level3OnGround=true;
   level3LastMoveFrame=performance.now();
@@ -3949,12 +4275,14 @@ async function startLevel3(game){
   level3NextFlashAt=performance.now()+1200+Math.random()*1400;
   level3FlashUntil=0;
 
-  $("levelBanner").querySelector(".big").textContent="Kamienne Ruiny";
-  $("levelBanner").querySelector(".small").textContent="Schodów";
-  $("levelBanner").querySelector(".big").textContent="Level 1";
-  $("levelBanner").querySelector(".small").textContent="Labirynt";
+  $("levelBanner").querySelector(".big").textContent="Kamienne Ruiny Schodów";
+  $("levelBanner").querySelector(".small").textContent="";
   $("levelBanner").classList.add("show");
-  setTimeout(()=>$("levelBanner").classList.remove("show"),2600);
+
+  setTimeout(
+    ()=>$("levelBanner").classList.remove("show"),
+    2600
+  );
 
   $("finishWait").style.display="none";
 
@@ -3975,6 +4303,7 @@ async function startLevel3(game){
     $("joy").classList.remove("hidden");
     $("jumpButton").classList.remove("hidden");
     $("spectatorPanel").classList.add("hidden");
+
     await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
       level:3,
       x:+localPos.x.toFixed(3),
@@ -3985,7 +4314,6 @@ async function startLevel3(game){
 
   resizeCanvas();
 }
-
 
 async function startLevel2(game){
   currentLevel=2;
@@ -4358,6 +4686,17 @@ function listenLevelPlayers(code){
       }
     }
 
+    if(currentLevel===3 && playerFinished && active.length>0){
+      const done3=active.filter(p=>p.finishedLevel3).length;
+      const text=$("portalWait").querySelector(".portalText");
+
+      if(text){
+        text.textContent=done3===active.length
+          ? "Wszyscy przeszli przez Kamienne Ruiny Schodów"
+          : `Oczekiwanie na graczy: ${done3}/${active.length}`;
+      }
+    }
+
     if(currentLevel===2 && active.length>0){
       const done2=active.filter(p=>p.finishedLevel2).length;
 
@@ -4510,7 +4849,7 @@ async function teleportHostToDoor(){
   }
 
   if(currentLevel===3){
-    localPos={x:1.8,y:11.95};
+    localPos={x:18.05,y:8.3};
     level3Vel={x:0,y:0};
     moveTarget=null;
 
@@ -4978,6 +5317,20 @@ canvas.addEventListener("pointerup",e=>{
       nearLevel2ExitDoor()
     ){
       enterLevel2Portal();
+    }
+    return;
+  }
+
+  if(currentLevel===3){
+    if(
+      level3ExitScreenRect &&
+      x>=level3ExitScreenRect.x &&
+      x<=level3ExitScreenRect.x+level3ExitScreenRect.w &&
+      y>=level3ExitScreenRect.y &&
+      y<=level3ExitScreenRect.y+level3ExitScreenRect.h &&
+      nearLevel3ExitDoor()
+    ){
+      enterLevel3Portal();
     }
     return;
   }
