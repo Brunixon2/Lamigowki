@@ -880,13 +880,9 @@ const L3_W = 20;
 const L3_H = 14;
 const L3_PLAYER_W = .62;
 const L3_PLAYER_H = .9;
-const L3_MOVE_SPEED = 2.35;
-const L3_ACCEL = 13;
-const L3_GRAVITY = 21.5;
-const L3_MAX_FALL = 13.5;
-const L3_JUMP_SPEED = 7.8;
-const L3_COYOTE_MS = 105;
-const L3_JUMP_BUFFER_MS = 135;
+const L3_MOVE_SPEED = 2.65;
+const L3_GRAVITY = 21;
+const L3_JUMP_SPEED = 8.6;
 const L3_GHOST = {x:2.25,y:3.35};
 const L3_WINDOW = {x:4.55,y:1.05,w:7.75,h:4.25};
 const L3_ENTRY_DOOR = {x:.15,floorY:12.25,w:.88};
@@ -954,8 +950,6 @@ let level2ExitScreenRect = null;
 let level3Vel = {x:0,y:0};
 let level3OnGround = false;
 let level3GroundId = "";
-let level3LastGroundAt = 0;
-let level3JumpQueuedAt = 0;
 let level3LastMoveFrame = 0;
 let level3PrevMovingY = 9.4;
 let level3NextFlashAt = 0;
@@ -3566,7 +3560,6 @@ function level3LandOnPlatforms(oldY,nextY,now){
     level3Vel.y=0;
     level3OnGround=true;
     level3GroundId=best.id;
-    level3LastGroundAt=now;
     return true;
   }
 
@@ -3607,44 +3600,26 @@ function level3ProbeGround(now){
 
   if(grounded){
     localPos.y=grounded.y;
+    level3Vel.y=0;
     level3OnGround=true;
     level3GroundId=grounded.id;
-    level3LastGroundAt=now;
   }else{
     level3OnGround=false;
     level3GroundId="";
   }
 }
 
-function level3RequestJump(){
+function startLevel3Jump(){
   if(
     currentLevel!==3 ||
     currentUser?.role==="spectator" ||
-    playerFinished
+    playerFinished ||
+    !level3OnGround
   ) return;
-
-  level3JumpQueuedAt=performance.now();
-}
-
-function startLevel3Jump(){
-  level3RequestJump();
-}
-
-function level3TryConsumeJump(now){
-  if(!level3JumpQueuedAt) return;
-  if(now-level3JumpQueuedAt>L3_JUMP_BUFFER_MS){
-    level3JumpQueuedAt=0;
-    return;
-  }
-
-  const canJump=level3OnGround || now-level3LastGroundAt<=L3_COYOTE_MS;
-
-  if(!canJump) return;
 
   level3Vel.y=-L3_JUMP_SPEED;
   level3OnGround=false;
   level3GroundId="";
-  level3JumpQueuedAt=0;
 }
 
 function level3Respawn(){
@@ -3653,8 +3628,6 @@ function level3Respawn(){
   level3Vel={x:0,y:0};
   level3OnGround=true;
   level3GroundId="entry";
-  level3LastGroundAt=performance.now();
-  level3JumpQueuedAt=0;
   level3PrevMovingY=level3MovingPlatformY();
 }
 
@@ -3750,16 +3723,19 @@ function buildLevel3LightMaps(now=performance.now()){
     level3AddPlayerLight(base,+p.x,+p.y-.45,LIGHT_RADIUS);
   }
 
+  const torchFlicker=.94+.045*Math.sin(now/83)+.02*Math.sin(now/37);
+
   level3AddTorchLight(
     warm,
     L3_EXIT_TORCH.x,
     L3_EXIT_TORCH.y,
     L2_TORCH_RADIUS,
     L2_TORCH_CORE_RADIUS,
-    L2_TORCH_POWER
+    L2_TORCH_POWER*torchFlicker
   );
 
   const ghost=level3GhostPosition(now);
+  const ghostPulse=.9+.06*Math.sin(now/145);
 
   level3AddTorchLight(
     red,
@@ -3767,7 +3743,7 @@ function buildLevel3LightMaps(now=performance.now()){
     ghost.y,
     L3_GHOST_LIGHT_RADIUS,
     L3_GHOST_LIGHT_CORE,
-    L3_GHOST_LIGHT_POWER
+    L3_GHOST_LIGHT_POWER*ghostPulse
   );
 
   const flash=level3MaybeFlash(now);
@@ -3844,6 +3820,23 @@ function level3DrawPlatformBody(p,tile,ox,oy){
   const h=Math.max(p.h*tile,tile*.44);
   const topDepth=Math.min(tile*.14,h*.32);
   const frontTop=py+topDepth;
+
+  if(p.oneWay){
+    ctx.save();
+    ctx.fillStyle="rgba(0,0,0,.32)";
+    ctx.beginPath();
+    ctx.ellipse(
+      px+w*.5+tile*.055,
+      py+h+tile*.13,
+      w*.48,
+      tile*.12,
+      0,
+      0,
+      Math.PI*2
+    );
+    ctx.fill();
+    ctx.restore();
+  }
   const img=p.kind==="dirt" ? tex.dirt : tex.wall;
   const alt=p.kind==="dirt" ? tex.dirt : tex.moss;
   const countX=Math.ceil(p.w)+1;
@@ -4013,6 +4006,19 @@ function level3DrawWindow(tile,ox,oy,maps){
   ctx.strokeStyle="rgba(4,7,10,.7)";
   ctx.lineWidth=Math.max(1,tile*.025);
   ctx.strokeRect(ix,iy,iw,ih);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(ix,iy,iw,ih);
+  ctx.clip();
+  const sheen=ctx.createLinearGradient(ix,iy,ix+iw,iy+ih);
+  sheen.addColorStop(0,"rgba(255,255,255,.08)");
+  sheen.addColorStop(.24,"rgba(255,255,255,.015)");
+  sheen.addColorStop(.56,"rgba(255,255,255,0)");
+  sheen.addColorStop(1,"rgba(255,255,255,.035)");
+  ctx.fillStyle=sheen;
+  ctx.fillRect(ix,iy,iw,ih);
+  ctx.restore();
 }
 
 function level3DrawTorch(tile,ox,oy){
@@ -4034,7 +4040,8 @@ function level3DrawTorch(tile,ox,oy){
     sx=(Math.floor(Date.now()/110)%frames)*frameSize;
   }
 
-  const size=tile*.68;
+  const flicker=.98+.025*Math.sin(Date.now()/76);
+  const size=tile*.66*flicker;
   const x=ox+L3_EXIT_TORCH.x*tile-size/2;
   const y=oy+L3_EXIT_TORCH.y*tile-size/2;
 
@@ -4049,7 +4056,7 @@ function level3DrawGhost(tile,ox,oy,now=performance.now()){
   const g=level3GhostPosition(now);
   const x=ox+g.x*tile;
   const y=oy+g.y*tile;
-  const size=tile*.9;
+  const size=tile*(.88+.025*Math.sin(now/170));
 
   if(
     tex.redGhost.complete &&
@@ -4288,7 +4295,7 @@ function updateLevel3Movement(mv,now=performance.now()){
   level3LastMoveFrame=now;
 
   if(!Number.isFinite(dt) || dt<0) dt=0;
-  dt=Math.min(.034,dt);
+  dt=Math.min(.033,dt);
 
   const movingY=level3MovingPlatformY(now);
 
@@ -4298,20 +4305,11 @@ function updateLevel3Movement(mv,now=performance.now()){
 
   level3PrevMovingY=movingY;
 
-  const targetX=Math.max(-1,Math.min(1,mv.x))*L3_MOVE_SPEED;
-  const accel=Math.min(1,L3_ACCEL*dt);
-  level3Vel.x+=(targetX-level3Vel.x)*accel;
-
-  if(Math.abs(targetX)<.01 && Math.abs(level3Vel.x)<.025){
-    level3Vel.x=0;
-  }
-
+  level3Vel.x=Math.max(-1,Math.min(1,mv.x))*L3_MOVE_SPEED;
   level3MoveX(level3Vel.x*dt);
-  level3ProbeGround(now);
-  level3TryConsumeJump(now);
 
   const oldY=localPos.y;
-  level3Vel.y=Math.min(L3_MAX_FALL,level3Vel.y+L3_GRAVITY*dt);
+  level3Vel.y=Math.min(15,level3Vel.y+L3_GRAVITY*dt);
   const nextY=oldY+level3Vel.y*dt;
 
   if(level3Vel.y>=0){
@@ -4327,7 +4325,6 @@ function updateLevel3Movement(mv,now=performance.now()){
   }
 
   level3ProbeGround(now);
-  level3TryConsumeJump(now);
 
   if(localPos.y>L3_FALL_RESPAWN_Y){
     level3Respawn();
@@ -4964,7 +4961,6 @@ async function teleportHostToDoor(){
     level3Vel={x:0,y:0};
     level3OnGround=true;
     level3GroundId="exit";
-    level3LastGroundAt=performance.now();
     moveTarget=null;
 
     await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
