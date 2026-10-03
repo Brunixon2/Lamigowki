@@ -58,10 +58,16 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
   -webkit-user-select:none;
   -webkit-touch-callout:none;
 }
-#gameScreen *{
-  user-select:none;
-  -webkit-user-select:none;
-  -webkit-touch-callout:none;
+#gameScreen,
+#gameScreen *,
+#bubbleSequence,
+#bubbleSequence *{
+  user-select:none!important;
+  -webkit-user-select:none!important;
+  -webkit-touch-callout:none!important;
+  -webkit-user-drag:none!important;
+  touch-action:none;
+  -webkit-tap-highlight-color:transparent;
 }
 #mazeCanvas{
   position:absolute;
@@ -575,12 +581,10 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
   color:#dff7ff;
 }
 #bubbleSequenceTarget{
-  min-height:42px;
-  margin:7px 0 3px;
-  font:900 31px/1.25 system-ui,-apple-system,"Segoe UI Symbol",sans-serif;
-  letter-spacing:12px;
-  color:#fff;
-  text-shadow:0 0 12px rgba(110,220,255,.65);
+  min-height:24px;
+  margin:6px 0 4px;
+  font:800 13px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;
+  color:#d7f3ff;
 }
 #bubbleSequenceStatus{
   min-height:19px;
@@ -609,6 +613,13 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
 #bubbleSequenceButtons button:active{
   transform:scale(.94);
   background:#1d3b50;
+}
+#bubbleSequenceButtons button.flash{
+  background:#f5f7ff;
+  color:#10202a;
+  border-color:#fff;
+  box-shadow:0 0 28px rgba(170,235,255,.95),inset 0 0 12px rgba(255,255,255,.75);
+  transform:scale(1.07);
 }
 
 
@@ -851,6 +862,7 @@ const L2_BUBBLE_FLIGHT_DURATION = 1250;
 const L2_BUBBLE_SAFE_X = 30.5;
 const L2_BUBBLE_SAFE_Y = 7.5;
 const L2_BUBBLE_SYMBOLS = ["▲","●","■","◆"];
+const L2_BUBBLE_SEQUENCE_LENGTH = 5;
 const L2_TORCH_RADIUS = 3;
 const L2_TORCH_CORE_RADIUS = 1;
 const L2_TORCH_POWER = 0.72;
@@ -906,6 +918,8 @@ let level2BubbleActive = false;
 let level2BubbleSolved = false;
 let level2BubbleSequence = [];
 let level2BubbleIndex = 0;
+let level2BubbleShowing = false;
+let level2BubblePlaybackToken = 0;
 let level2BubbleFlying = false;
 let level2BubbleFlightStart = 0;
 let level2BubbleFlightFrom = {x:0,y:0};
@@ -1006,6 +1020,37 @@ function tryStartAmbient(){
 
 
 document.addEventListener("pointerdown", tryStartAmbient, {passive:true});
+
+document.addEventListener("selectstart",e=>{
+  if(
+    gameScreen.style.display==="block" ||
+    $("bubbleSequence").classList.contains("show")
+  ){
+    e.preventDefault();
+  }
+});
+
+document.addEventListener("dragstart",e=>{
+  if(
+    gameScreen.style.display==="block" ||
+    $("bubbleSequence").classList.contains("show")
+  ){
+    e.preventDefault();
+  }
+});
+
+document.addEventListener("touchstart",e=>{
+  if(
+    gameScreen.style.display==="block" &&
+    !(
+      e.target instanceof HTMLInputElement ||
+      e.target instanceof HTMLTextAreaElement ||
+      e.target instanceof HTMLSelectElement
+    )
+  ){
+    if(e.touches.length>1) e.preventDefault();
+  }
+},{passive:false});
 
 const tex = {};
 for (const [k,u] of Object.entries({
@@ -2676,10 +2721,14 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
   }
 
   const players=Object.values(remotePlayers).filter(p=>
-    !p.spectator && p.level===2 && p.x!=null && p.y!=null
+    !p.spectator &&
+    !p.finishedLevel2 &&
+    p.level===2 &&
+    p.x!=null &&
+    p.y!=null
   );
 
-  if(currentUser?.role!=="spectator"){
+  if(currentUser?.role!=="spectator" && !playerFinished){
     const mine=players.find(p=>p.uid===auth.currentUser?.uid);
 
     if(!mine){
@@ -2919,10 +2968,28 @@ function maybeAdvanceLevel2Host(){
 
 function makeLevel2BubbleSequence(){
   const sequence=[];
-  for(let i=0;i<3;i++){
+  for(let i=0;i<L2_BUBBLE_SEQUENCE_LENGTH;i++){
     sequence.push(L2_BUBBLE_SYMBOLS[Math.floor(Math.random()*L2_BUBBLE_SYMBOLS.length)]);
   }
   return sequence;
+}
+
+function setLevel2BubbleButtonsEnabled(enabled){
+  for(const button of $("bubbleSequenceButtons").querySelectorAll("button")){
+    button.disabled=!enabled;
+  }
+}
+
+function flashLevel2BubbleSymbol(symbol,on){
+  const button=$("bubbleSequenceButtons").querySelector(`button[data-symbol="${symbol}"]`);
+  if(!button) return;
+  button.classList.toggle("flash",!!on);
+}
+
+function clearLevel2BubbleFlashes(){
+  for(const button of $("bubbleSequenceButtons").querySelectorAll("button")){
+    button.classList.remove("flash");
+  }
 }
 
 function updateLevel2BubbleUI(){
@@ -2933,26 +3000,82 @@ function updateLevel2BubbleUI(){
   if(!level2BubbleActive){
     ui.classList.remove("show");
     ui.classList.add("hidden");
+    clearLevel2BubbleFlashes();
     return;
   }
 
   ui.classList.remove("hidden");
   ui.classList.add("show");
-  target.textContent=level2BubbleSequence.join("  ");
 
   if(level2BubbleFlying){
+    target.textContent="";
     status.textContent="Wracasz do bezpiecznej strefy…";
-  }else if(level2BubbleSolved){
+    setLevel2BubbleButtonsEnabled(false);
+    return;
+  }
+
+  if(level2BubbleSolved){
+    target.textContent="";
     status.textContent=level2Phase==="exit"
       ? "Sekwencja gotowa."
       : "Sekwencja gotowa — czekaj na koniec rundy.";
-  }else{
-    status.textContent=`${level2BubbleIndex}/3`;
+    setLevel2BubbleButtonsEnabled(false);
+    return;
   }
 
-  for(const button of $("bubbleSequenceButtons").querySelectorAll("button")){
-    button.disabled=level2BubbleSolved || level2BubbleFlying;
+  if(level2BubbleShowing){
+    target.textContent="Zapamiętaj kolejność";
+    status.textContent="";
+    setLevel2BubbleButtonsEnabled(false);
+  }else{
+    target.textContent="Powtórz sekwencję";
+    status.textContent=`${level2BubbleIndex}/${level2BubbleSequence.length}`;
+    setLevel2BubbleButtonsEnabled(true);
   }
+}
+
+function playLevel2BubbleSequence(delay=350){
+  const token=++level2BubblePlaybackToken;
+  level2BubbleShowing=true;
+  level2BubbleIndex=0;
+  clearLevel2BubbleFlashes();
+  updateLevel2BubbleUI();
+
+  let time=delay;
+
+  level2BubbleSequence.forEach((symbol,index)=>{
+    setTimeout(()=>{
+      if(
+        token!==level2BubblePlaybackToken ||
+        !level2BubbleActive ||
+        level2BubbleSolved
+      ) return;
+
+      flashLevel2BubbleSymbol(symbol,true);
+    },time);
+
+    time+=430;
+
+    setTimeout(()=>{
+      if(token!==level2BubblePlaybackToken) return;
+      flashLevel2BubbleSymbol(symbol,false);
+    },time);
+
+    time+=180;
+  });
+
+  setTimeout(()=>{
+    if(
+      token!==level2BubblePlaybackToken ||
+      !level2BubbleActive ||
+      level2BubbleSolved
+    ) return;
+
+    level2BubbleShowing=false;
+    level2BubbleIndex=0;
+    clearLevel2BubbleFlashes();
+    updateLevel2BubbleUI();
+  },time+80);
 }
 
 function syncLevel2BubbleState(extra={}){
@@ -2970,6 +3093,8 @@ function startLevel2Bubble(){
   level2BubbleActive=true;
   level2BubbleSolved=false;
   level2BubbleFlying=false;
+  level2BubbleShowing=false;
+  level2BubblePlaybackToken++;
   level2BubbleFlightStart=0;
   level2BubbleSequence=makeLevel2BubbleSequence();
   level2BubbleIndex=0;
@@ -2980,6 +3105,7 @@ function startLevel2Bubble(){
     y:+localPos.y.toFixed(3),
     level:2
   });
+  playLevel2BubbleSequence(450);
 }
 
 function pressLevel2BubbleSymbol(symbol){
@@ -2987,30 +3113,43 @@ function pressLevel2BubbleSymbol(symbol){
     !level2BubbleActive ||
     level2BubbleSolved ||
     level2BubbleFlying ||
+    level2BubbleShowing ||
     !level2BubbleSequence.length
   ) return;
+
+  flashLevel2BubbleSymbol(symbol,true);
+  setTimeout(()=>flashLevel2BubbleSymbol(symbol,false),140);
 
   if(symbol===level2BubbleSequence[level2BubbleIndex]){
     level2BubbleIndex++;
 
     if(level2BubbleIndex>=level2BubbleSequence.length){
       level2BubbleSolved=true;
+      level2BubbleShowing=false;
+      level2BubblePlaybackToken++;
+      clearLevel2BubbleFlashes();
       syncLevel2BubbleState();
 
       if(level2Phase==="exit"){
         startLevel2BubbleFlight();
       }
     }
-  }else{
-    level2BubbleIndex=0;
-    $("bubbleSequenceStatus").textContent="Zła kolejność — od początku.";
-    setTimeout(()=>{
-      if(level2BubbleActive && !level2BubbleSolved) updateLevel2BubbleUI();
-    },450);
+
+    updateLevel2BubbleUI();
     return;
   }
 
-  updateLevel2BubbleUI();
+  level2BubbleIndex=0;
+  level2BubbleShowing=true;
+  setLevel2BubbleButtonsEnabled(false);
+  $("bubbleSequenceTarget").textContent="Zła kolejność";
+  $("bubbleSequenceStatus").textContent="Sekwencja pokaże się ponownie.";
+
+  setTimeout(()=>{
+    if(level2BubbleActive && !level2BubbleSolved){
+      playLevel2BubbleSequence(150);
+    }
+  },650);
 }
 
 function startLevel2BubbleFlight(){
@@ -3102,6 +3241,8 @@ async function startLevel2(game){
   level2BubbleSolved=false;
   level2BubbleSequence=[];
   level2BubbleIndex=0;
+  level2BubbleShowing=false;
+  level2BubblePlaybackToken++;
   level2BubbleFlying=false;
   level2BubbleFlightStart=0;
   $("bubbleSequence").classList.remove("show");
@@ -3832,7 +3973,8 @@ addEventListener("keydown",e=>{
     !typing &&
     currentLevel===2 &&
     level2BubbleActive &&
-    !level2BubbleSolved
+    !level2BubbleSolved &&
+    !level2BubbleShowing
   ){
     const bubbleKeys={
       Digit1:"▲",
@@ -3907,7 +4049,10 @@ async function enterLevel2Portal(){
   level2Jumping=false;
   level2BubbleActive=false;
   level2BubbleSolved=false;
+  level2BubbleShowing=false;
+  level2BubblePlaybackToken++;
   level2BubbleFlying=false;
+  clearLevel2BubbleFlashes();
   $("bubbleSequence").classList.remove("show");
   $("bubbleSequence").classList.add("hidden");
   resetMovementInput();
