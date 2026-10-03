@@ -621,27 +621,6 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
   box-shadow:0 0 28px rgba(170,235,255,.95),inset 0 0 12px rgba(255,255,255,.75);
   transform:scale(1.07);
 }
-#level2PhaseHud{
-  position:absolute;
-  z-index:24;
-  top:max(14px,env(safe-area-inset-top));
-  left:50%;
-  transform:translateX(-50%);
-  min-width:180px;
-  max-width:min(78vw,420px);
-  padding:7px 13px;
-  border:1px solid rgba(255,255,255,.16);
-  border-radius:999px;
-  background:rgba(8,8,10,.7);
-  color:#fff;
-  text-align:center;
-  font:800 13px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;
-  text-shadow:0 2px 4px #000;
-  box-shadow:0 6px 18px rgba(0,0,0,.3);
-  pointer-events:none;
-  backdrop-filter:blur(4px);
-}
-#level2PhaseHud.hidden{display:none}
 
 
 
@@ -723,7 +702,6 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
   <div id="levelBanner"><div class="big">Level 1</div><div class="small">Labirynt</div></div>
   <div id="wordHud">SŁOWO: <span id="wordProgress">????</span></div>
   <div id="letterToast"></div>
-  <div id="level2PhaseHud" class="hidden"></div>
 
   <div id="hostFunctions" class="hidden">
     <button id="functionsButton">Funkcje</button>
@@ -2070,8 +2048,16 @@ function level2OakState(x,y,now=Date.now()){
 }
 
 function level2ExitBridgeReady(now=Date.now()){
-  if(level2Phase!=="exit" || !level2ExitAt) return false;
-  return now-level2ExitAt>=900;
+  if(level2Phase==="exit" && level2ExitAt){
+    return now-level2ExitAt>=900;
+  }
+
+  if(level2Phase==="challenge" && level2ChallengeAt){
+    const fallbackExitAt=level2ChallengeAt+level2LastFallAt+700;
+    return now-fallbackExitAt>=900;
+  }
+
+  return false;
 }
 
 function level2CellSolid(tx,ty,now=Date.now()){
@@ -2607,43 +2593,6 @@ function drawLevel2BridgeRiseSplash(tile,ox,oy,progress){
   ctx.restore();
 }
 
-function countLevel2StandingOak(now=Date.now()){
-  let count=0;
-
-  for(let y=L2_PLATFORM_Y;y<L2_PLATFORM_Y+L2_PLATFORM_H;y++){
-    for(let x=L2_PLATFORM_X;x<L2_PLATFORM_X+L2_PLATFORM_W;x++){
-      const state=level2OakState(x,y,now);
-      if(state!=="fallen") count++;
-    }
-  }
-
-  return count;
-}
-
-function updateLevel2PhaseHud(){
-  const hud=$("level2PhaseHud");
-  if(currentLevel!==2 || gameScreen.style.display!=="block"){
-    hud.classList.add("hidden");
-    return;
-  }
-
-  hud.classList.remove("hidden");
-
-  if(level2Phase==="gather"){
-    hud.textContent="Wejdźcie wszyscy na platformę";
-    return;
-  }
-
-  if(level2Phase==="challenge"){
-    const remaining=countLevel2StandingOak();
-    hud.textContent=remaining<=4
-      ? "Zostały 4 bezpieczne deski"
-      : `Platforma się rozpada • zostało ${remaining}`;
-    return;
-  }
-
-  hud.textContent="Droga do wyjścia otwarta";
-}
 
 function drawLevel2ExitDoorGlow(tile,ox,oy,intensity){
   if(level2Phase!=="exit" || intensity<=0) return;
@@ -2800,8 +2749,19 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
   }
 
 
-  if(level2Phase==="exit" && level2ExitAt){
-    const p=Math.max(0,Math.min(1,(now-level2ExitAt)/900));
+  const renderExitAt=
+    level2Phase==="exit"
+      ? level2ExitAt
+      : (
+          level2Phase==="challenge" &&
+          level2ChallengeAt &&
+          now>=level2ChallengeAt+level2LastFallAt+700
+            ? level2ChallengeAt+level2LastFallAt+700
+            : 0
+        );
+
+  if(renderExitAt){
+    const p=Math.max(0,Math.min(1,(now-renderExitAt)/900));
     const offset=(1-p)*tile*.68;
     const alpha=.2+p*.8;
 
@@ -3071,7 +3031,6 @@ function renderLevel2(){
   const d=Math.max(1,Math.min(2,devicePixelRatio||1));
   ctx.setTransform(d,0,0,d,0,0);
   ctx.imageSmoothingEnabled=false;
-  updateLevel2PhaseHud();
 
   if(currentUser?.role==="spectator" && !followUid){
     const margin=22;
@@ -3106,9 +3065,26 @@ function renderLevel2(){
 
 function applyLevel2GameState(game){
   const oldPhase=level2Phase;
-  level2Phase=game.level2Phase||"gather";
+  const storedPhase=game.level2Phase||"gather";
   level2ChallengeAt=Number(game.level2ChallengeAt||0);
-  level2ExitAt=Number(game.level2ExitAt||0);
+
+  const deterministicExitAt=
+    level2ChallengeAt
+      ? level2ChallengeAt+level2LastFallAt+700
+      : 0;
+
+  const challengeFinished=
+    storedPhase==="challenge" &&
+    deterministicExitAt &&
+    Date.now()>=deterministicExitAt;
+
+  level2Phase=challengeFinished ? "exit" : storedPhase;
+
+  if(level2Phase==="exit"){
+    level2ExitAt=Number(game.level2ExitAt||deterministicExitAt||Date.now());
+  }else{
+    level2ExitAt=Number(game.level2ExitAt||0);
+  }
 
   if(oldPhase!==level2Phase){
     if(level2Phase==="challenge" || level2Phase==="exit"){
@@ -3116,14 +3092,6 @@ function applyLevel2GameState(game){
         splashAudio.currentTime=0;
         splashAudio.play().catch(()=>{});
       }catch(_){}
-    }
-
-    if(
-      level2Phase==="exit" &&
-      level2BubbleActive &&
-      level2BubbleSolved
-    ){
-      startLevel2BubbleFlight();
     }
 
     level2LastPhase=level2Phase;
@@ -3158,22 +3126,44 @@ function maybeAdvanceLevel2Host(){
 
   if(level2Phase==="gather" && allLevel2PlayersOnPlatform()){
     level2PhaseWritePending=true;
+    const challengeAt=Date.now();
+
+    level2Phase="challenge";
+    level2ChallengeAt=challengeAt;
+    level2ExitAt=0;
+
     update(ref(db,`games/${currentGameCode}`),{
       level2Phase:"challenge",
-      level2ChallengeAt:Date.now()
+      level2ChallengeAt:challengeAt,
+      level2ExitAt:null
     }).finally(()=>level2PhaseWritePending=false);
     return;
   }
 
+  const storedPhase=currentGameData?.level2Phase||level2Phase;
+  const challengeAt=Number(currentGameData?.level2ChallengeAt||level2ChallengeAt||0);
+  const exitAt=challengeAt ? challengeAt+level2LastFallAt+700 : 0;
+
   if(
-    level2Phase==="challenge" &&
-    level2ChallengeAt &&
-    Date.now()-level2ChallengeAt>=level2LastFallAt+760
+    storedPhase==="challenge" &&
+    exitAt &&
+    Date.now()>=exitAt
   ){
+    level2Phase="exit";
+    level2ExitAt=exitAt;
+
+    if(
+      level2BubbleActive &&
+      level2BubbleSolved &&
+      !level2BubbleFlying
+    ){
+      startLevel2BubbleFlight();
+    }
+
     level2PhaseWritePending=true;
     update(ref(db,`games/${currentGameCode}`),{
       level2Phase:"exit",
-      level2ExitAt:Date.now()
+      level2ExitAt:exitAt
     }).finally(()=>level2PhaseWritePending=false);
   }
 }
@@ -3365,12 +3355,25 @@ function pressLevel2BubbleSymbol(symbol){
 }
 
 function startLevel2BubbleFlight(){
+  const effectiveExit=
+    level2Phase==="exit" ||
+    (
+      level2Phase==="challenge" &&
+      level2ChallengeAt &&
+      Date.now()>=level2ChallengeAt+level2LastFallAt+700
+    );
+
   if(
     !level2BubbleActive ||
     !level2BubbleSolved ||
     level2BubbleFlying ||
-    level2Phase!=="exit"
+    !effectiveExit
   ) return;
+
+  if(level2Phase!=="exit"){
+    level2Phase="exit";
+    level2ExitAt=level2ChallengeAt+level2LastFallAt+700;
+  }
 
   level2BubbleFlying=true;
   level2BubbleFlightStart=performance.now();
@@ -3459,7 +3462,6 @@ async function startLevel2(game){
   level2BubbleFlying=false;
   level2BubbleFlightStart=0;
   level2SplashEffects=[];
-  $("level2PhaseHud").classList.remove("hidden");
   $("bubbleSequence").classList.remove("show");
   $("bubbleSequence").classList.add("hidden");
   $("drownOverlay").classList.remove("show");
@@ -3694,7 +3696,6 @@ function showGameToast(message){
 
 async function startLevel1(game){
   currentLevel=1;
-  $("level2PhaseHud").classList.add("hidden");
   $("jumpButton").classList.add("hidden");
   gameStartedHandled=true;
   playerFinished=false;
@@ -3996,7 +3997,7 @@ function updateMovement(now=performance.now()){
   if(currentLevel===2 && level2BubbleActive){
     level2LastMoveFrame=now;
 
-    if(level2BubbleSolved && level2Phase==="exit" && !level2BubbleFlying){
+    if(level2BubbleSolved && !level2BubbleFlying){
       startLevel2BubbleFlight();
     }
 
@@ -4262,7 +4263,6 @@ async function enterLevel2Portal(){
 
   finishingLevel=true;
   playerFinished=true;
-  $("level2PhaseHud").classList.add("hidden");
   level2Jumping=false;
   level2BubbleActive=false;
   level2BubbleSolved=false;
