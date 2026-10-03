@@ -880,7 +880,7 @@ const L3_W = 20;
 const L3_H = 14;
 const L3_PLAYER_W = .62;
 const L3_PLAYER_H = .9;
-const L3_MOVE_SPEED = 2.65;
+const L3_MOVE_SPEED = L2_MOVE_SPEED;
 const L3_GRAVITY = 21;
 const L3_JUMP_SPEED = 8.6;
 const L3_GHOST = {x:2.25,y:3.35};
@@ -3937,6 +3937,7 @@ function level3DrawWindow(tile,ox,oy,maps){
   const iw=ww-frame*2;
   const ih=wh-frame*2;
   const flash=maps.flash;
+  const now=performance.now();
 
   ctx.save();
   ctx.fillStyle="#535447";
@@ -3947,34 +3948,70 @@ function level3DrawWindow(tile,ox,oy,maps){
   ctx.clip();
 
   const sky=ctx.createLinearGradient(ix,iy,ix,iy+ih);
-  sky.addColorStop(0,flash>.03 ? "#d8e8f8" : "#263446");
-  sky.addColorStop(.55,flash>.03 ? "#9fb9d1" : "#182434");
-  sky.addColorStop(1,"#0b111b");
+  sky.addColorStop(0,flash>.03 ? "#dceafa" : "#202c3d");
+  sky.addColorStop(.5,flash>.03 ? "#9fb6ca" : "#151f2d");
+  sky.addColorStop(1,"#070c13");
   ctx.fillStyle=sky;
   ctx.fillRect(ix,iy,iw,ih);
 
-  ctx.fillStyle=flash>.03 ? "rgba(195,211,226,.42)" : "rgba(9,14,22,.52)";
-  ctx.beginPath();
-  ctx.ellipse(ix+iw*.2,iy+ih*.22,iw*.25,ih*.14,0,0,Math.PI*2);
-  ctx.ellipse(ix+iw*.52,iy+ih*.17,iw*.31,ih*.16,0,0,Math.PI*2);
-  ctx.ellipse(ix+iw*.84,iy+ih*.24,iw*.27,ih*.15,0,0,Math.PI*2);
-  ctx.fill();
+  const cloudShift=(now*.0028)%iw;
+  ctx.fillStyle=flash>.03 ? "rgba(215,226,237,.46)" : "rgba(6,10,17,.66)";
+  for(let i=-1;i<4;i++){
+    const cx=ix+((i*.34*iw+cloudShift)%(iw*1.35))-iw*.18;
+    const cy=iy+ih*(.15+.035*(i%2));
+    ctx.beginPath();
+    ctx.ellipse(cx,cy,iw*.19,ih*.105,0,0,Math.PI*2);
+    ctx.ellipse(cx+iw*.11,cy-ih*.025,iw*.17,ih*.12,0,0,Math.PI*2);
+    ctx.ellipse(cx+iw*.23,cy+ih*.018,iw*.21,ih*.1,0,0,Math.PI*2);
+    ctx.fill();
+  }
 
-  const rainShift=(Date.now()/15)%tile;
+  function rainHash(n){
+    const v=Math.sin(n*12.9898+78.233)*43758.5453;
+    return v-Math.floor(v);
+  }
 
-  for(let x=ix-tile;x<ix+iw+tile;x+=tile*.38){
-    for(let y=iy-tile;y<iy+ih+tile;y+=tile*.72){
-      const rx=x+rainShift*.27;
-      const ry=y+rainShift;
+  const layers=[
+    {count:30,speed:.18,len:.18,alpha:.16,width:.012,wind:.065},
+    {count:24,speed:.29,len:.25,alpha:.25,width:.016,wind:.085},
+    {count:18,speed:.43,len:.34,alpha:.38,width:.021,wind:.11}
+  ];
+
+  let seedBase=0;
+  for(const layer of layers){
+    for(let i=0;i<layer.count;i++){
+      const seed=seedBase+i+1;
+      const baseX=rainHash(seed*1.71);
+      const baseY=rainHash(seed*4.37);
+      const variation=.72+rainHash(seed*7.11)*.58;
+      const travel=(now*layer.speed*.001*variation+baseY)%1.35;
+      const y=iy+(travel-.22)*ih;
+      const drift=((travel-.22)*layer.wind+baseX)%1;
+      const x=ix+drift*iw;
+      const length=ih*layer.len*(.72+rainHash(seed*9.19)*.55);
+      const dx=-length*(.18+.08*rainHash(seed*3.29));
+
       ctx.strokeStyle=flash>.03
-        ? "rgba(235,247,255,.72)"
-        : "rgba(153,194,229,.42)";
-      ctx.lineWidth=Math.max(1,tile*.022);
+        ? `rgba(235,247,255,${Math.min(.82,layer.alpha+.24)})`
+        : `rgba(142,184,220,${layer.alpha})`;
+      ctx.lineWidth=Math.max(1,tile*layer.width);
       ctx.beginPath();
-      ctx.moveTo(rx,ry);
-      ctx.lineTo(rx-tile*.18,ry+tile*.43);
+      ctx.moveTo(x,y);
+      ctx.lineTo(x+dx,y+length);
       ctx.stroke();
     }
+    seedBase+=layer.count;
+  }
+
+  for(let i=0;i<15;i++){
+    const sx=ix+rainHash(120+i*3.1)*iw;
+    const sy=iy+rainHash(230+i*5.7)*ih;
+    const phase=(now*.00012*(.7+rainHash(i+55)) + rainHash(i+18))%1;
+    const r=Math.max(1,tile*(.012+.012*rainHash(i+340)));
+    ctx.fillStyle=`rgba(188,218,238,${.05+.12*(1-phase)})`;
+    ctx.beginPath();
+    ctx.ellipse(sx,sy+phase*tile*.28,r*.7,r*1.5,0,0,Math.PI*2);
+    ctx.fill();
   }
 
   if(flash>.03){
@@ -3999,7 +4036,7 @@ function level3DrawWindow(tile,ox,oy,maps){
   ctx.fillRect(wx+ww-frame,wy,frame,wh);
   ctx.fillRect(wx+ww/2-divider/2,wy+frame,divider,wh-frame*2);
 
-  ctx.fillStyle="rgba(255,255,255,.08)";
+  ctx.fillStyle="rgba(255,255,255,.07)";
   ctx.fillRect(wx,wy,ww,Math.max(1,tile*.025));
   ctx.fillRect(wx,wy,Math.max(1,tile*.025),wh);
 
@@ -4012,15 +4049,14 @@ function level3DrawWindow(tile,ox,oy,maps){
   ctx.rect(ix,iy,iw,ih);
   ctx.clip();
   const sheen=ctx.createLinearGradient(ix,iy,ix+iw,iy+ih);
-  sheen.addColorStop(0,"rgba(255,255,255,.08)");
-  sheen.addColorStop(.24,"rgba(255,255,255,.015)");
-  sheen.addColorStop(.56,"rgba(255,255,255,0)");
-  sheen.addColorStop(1,"rgba(255,255,255,.035)");
+  sheen.addColorStop(0,"rgba(255,255,255,.075)");
+  sheen.addColorStop(.22,"rgba(255,255,255,.014)");
+  sheen.addColorStop(.58,"rgba(255,255,255,0)");
+  sheen.addColorStop(1,"rgba(255,255,255,.03)");
   ctx.fillStyle=sheen;
   ctx.fillRect(ix,iy,iw,ih);
   ctx.restore();
 }
-
 function level3DrawTorch(tile,ox,oy){
   if(!tex.torch.complete || !tex.torch.naturalWidth) return;
 
@@ -5023,7 +5059,12 @@ function updateMovement(now=performance.now()){
     return;
   }
 
-  const mv=combinedMove();
+  const mv=currentLevel===3
+    ? {
+        x:Math.max(-1,Math.min(1,moveVec.x+keyVec.x)),
+        y:0
+      }
+    : combinedMove();
 
   if(currentUser?.role==="spectator"){
     level2LastMoveFrame=now;
@@ -5214,7 +5255,9 @@ document.addEventListener("visibilitychange",()=>{
 const pressed=new Set();
 function recalcKeys(){
   keyVec.x=(pressed.has("ArrowRight")||pressed.has("KeyD")?1:0)-(pressed.has("ArrowLeft")||pressed.has("KeyA")?1:0);
-  keyVec.y=(pressed.has("ArrowDown")||pressed.has("KeyS")?1:0)-(pressed.has("ArrowUp")||pressed.has("KeyW")?1:0);
+  keyVec.y=currentLevel===3
+    ? 0
+    : (pressed.has("ArrowDown")||pressed.has("KeyS")?1:0)-(pressed.has("ArrowUp")||pressed.has("KeyW")?1:0);
 }
 
 function resetMovementInput(){
@@ -5274,12 +5317,17 @@ addEventListener("keydown",e=>{
 
   if(
     gameScreen.style.display==="block" &&
-    !typing &&
-    ["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","KeyW","KeyA","KeyS","KeyD"].includes(e.code)
+    !typing
   ){
-    pressed.add(e.code);
-    recalcKeys();
-    e.preventDefault();
+    const movementKeys=currentLevel===3
+      ? ["ArrowLeft","ArrowRight","KeyA","KeyD"]
+      : ["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","KeyW","KeyA","KeyS","KeyD"];
+
+    if(movementKeys.includes(e.code)){
+      pressed.add(e.code);
+      recalcKeys();
+      e.preventDefault();
+    }
   }
 });
 addEventListener("keyup",e=>{
