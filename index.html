@@ -621,6 +621,28 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
   box-shadow:0 0 28px rgba(170,235,255,.95),inset 0 0 12px rgba(255,255,255,.75);
   transform:scale(1.07);
 }
+#level2PhaseHud{
+  position:absolute;
+  z-index:24;
+  top:max(14px,env(safe-area-inset-top));
+  left:50%;
+  transform:translateX(-50%);
+  min-width:180px;
+  max-width:min(78vw,420px);
+  padding:7px 13px;
+  border:1px solid rgba(255,255,255,.16);
+  border-radius:999px;
+  background:rgba(8,8,10,.7);
+  color:#fff;
+  text-align:center;
+  font:800 13px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;
+  text-shadow:0 2px 4px #000;
+  box-shadow:0 6px 18px rgba(0,0,0,.3);
+  pointer-events:none;
+  backdrop-filter:blur(4px);
+}
+#level2PhaseHud.hidden{display:none}
+
 
 
 </style>
@@ -701,6 +723,7 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
   <div id="levelBanner"><div class="big">Level 1</div><div class="small">Labirynt</div></div>
   <div id="wordHud">SŁOWO: <span id="wordProgress">????</span></div>
   <div id="letterToast"></div>
+  <div id="level2PhaseHud" class="hidden"></div>
 
   <div id="hostFunctions" class="hidden">
     <button id="functionsButton">Funkcje</button>
@@ -863,6 +886,7 @@ const L2_BUBBLE_SAFE_X = 30.5;
 const L2_BUBBLE_SAFE_Y = 7.5;
 const L2_BUBBLE_SYMBOLS = ["▲","●","■","◆"];
 const L2_BUBBLE_SEQUENCE_LENGTH = 5;
+const L2_SPLASH_LIFE = 900;
 const L2_TORCH_RADIUS = 3;
 const L2_TORCH_CORE_RADIUS = 1;
 const L2_TORCH_POWER = 0.72;
@@ -923,6 +947,7 @@ let level2BubblePlaybackToken = 0;
 let level2BubbleFlying = false;
 let level2BubbleFlightStart = 0;
 let level2BubbleFlightFrom = {x:0,y:0};
+let level2SplashEffects = [];
 let level2LastMoveFrame = 0;
 let level2ExitScreenRect = null;
 const avatarImageCache = new Map();
@@ -2485,6 +2510,162 @@ function getLevel2SafeRespawn(){
   return {x:2.5,y:7.5};
 }
 
+function addLevel2Splash(x,y,scale=1){
+  level2SplashEffects.push({
+    x,
+    y,
+    started:performance.now(),
+    scale
+  });
+
+  if(level2SplashEffects.length>18){
+    level2SplashEffects.splice(0,level2SplashEffects.length-18);
+  }
+}
+
+function drawLevel2SplashEffects(tile,ox,oy){
+  const now=performance.now();
+  const active=[];
+
+  for(const effect of level2SplashEffects){
+    const age=now-effect.started;
+    if(age>=L2_SPLASH_LIFE) continue;
+
+    active.push(effect);
+
+    const p=age/L2_SPLASH_LIFE;
+    const fade=1-p;
+    const cx=ox+effect.x*tile;
+    const cy=oy+effect.y*tile+tile*.12;
+    const s=tile*effect.scale;
+
+    ctx.save();
+    ctx.globalAlpha=fade;
+
+    for(let i=0;i<8;i++){
+      const angle=(-Math.PI*.9)+(i/7)*Math.PI*.8;
+      const speed=s*(.18+.08*(i%3));
+      const px=cx+Math.cos(angle)*speed*p*2.3;
+      const py=cy+Math.sin(angle)*speed*p*2.3-s*.48*p+s*.34*p*p;
+      const r=Math.max(1.5,s*(.035+.008*(i%2))*(1-p*.45));
+      ctx.beginPath();
+      ctx.arc(px,py,r,0,Math.PI*2);
+      ctx.fillStyle="rgba(191,241,255,.92)";
+      ctx.fill();
+    }
+
+    ctx.beginPath();
+    ctx.ellipse(
+      cx,
+      cy,
+      s*(.12+.3*p),
+      s*(.045+.08*p),
+      0,
+      0,
+      Math.PI*2
+    );
+    ctx.strokeStyle="rgba(209,248,255,.88)";
+    ctx.lineWidth=Math.max(1.2,s*.025);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  level2SplashEffects=active;
+}
+
+function drawLevel2BridgeRiseSplash(tile,ox,oy,progress){
+  if(progress<=0 || progress>=1) return;
+
+  const alpha=Math.sin(progress*Math.PI);
+  const left=L2_PLATFORM_X;
+  const right=L2_EXIT_BRIDGE_X+L2_EXIT_BRIDGE_W;
+  const top=L2_PLATFORM_Y;
+  const bottom=L2_PLATFORM_Y+L2_PLATFORM_H;
+
+  ctx.save();
+  ctx.globalAlpha=alpha*.72;
+  ctx.strokeStyle="rgba(210,248,255,.95)";
+  ctx.fillStyle="rgba(185,237,255,.75)";
+  ctx.lineWidth=Math.max(1.4,tile*.035);
+
+  for(let x=left;x<=right;x+=.7){
+    const wobble=Math.sin(x*2.3+progress*11)*tile*.035;
+    const sx=ox+x*tile;
+    const ty=oy+top*tile+wobble;
+    const by=oy+bottom*tile+wobble;
+
+    ctx.beginPath();
+    ctx.arc(sx,ty,tile*.045,0,Math.PI*2);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(sx,by,tile*.045,0,Math.PI*2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function countLevel2StandingOak(now=Date.now()){
+  let count=0;
+
+  for(let y=L2_PLATFORM_Y;y<L2_PLATFORM_Y+L2_PLATFORM_H;y++){
+    for(let x=L2_PLATFORM_X;x<L2_PLATFORM_X+L2_PLATFORM_W;x++){
+      const state=level2OakState(x,y,now);
+      if(state!=="fallen") count++;
+    }
+  }
+
+  return count;
+}
+
+function updateLevel2PhaseHud(){
+  const hud=$("level2PhaseHud");
+  if(currentLevel!==2 || gameScreen.style.display!=="block"){
+    hud.classList.add("hidden");
+    return;
+  }
+
+  hud.classList.remove("hidden");
+
+  if(level2Phase==="gather"){
+    hud.textContent="Wejdźcie wszyscy na platformę";
+    return;
+  }
+
+  if(level2Phase==="challenge"){
+    const remaining=countLevel2StandingOak();
+    hud.textContent=remaining<=4
+      ? "Zostały 4 bezpieczne deski"
+      : `Platforma się rozpada • zostało ${remaining}`;
+    return;
+  }
+
+  hud.textContent="Droga do wyjścia otwarta";
+}
+
+function drawLevel2ExitDoorGlow(tile,ox,oy,intensity){
+  if(level2Phase!=="exit" || intensity<=0) return;
+
+  const r=level2DoorRect("right",tile,ox,oy);
+  const pulse=.45+.25*(.5+.5*Math.sin(Date.now()/210));
+
+  ctx.save();
+  ctx.globalCompositeOperation="screen";
+  ctx.shadowColor=`rgba(255,205,74,${pulse})`;
+  ctx.shadowBlur=tile*.42;
+  ctx.strokeStyle=`rgba(255,220,105,${pulse})`;
+  ctx.lineWidth=Math.max(2,tile*.055);
+  ctx.strokeRect(
+    r.x-tile*.035,
+    r.y-tile*.035,
+    r.w+tile*.07,
+    r.h+tile*.07
+  );
+  ctx.restore();
+}
+
 function drawLevel2Scene(tile,ox,oy,overview=false){
   const now=Date.now();
   const light=buildLevel2LightMap();
@@ -2624,6 +2805,8 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
     const offset=(1-p)*tile*.68;
     const alpha=.2+p*.8;
 
+    drawLevel2BridgeRiseSplash(tile,ox,oy,p);
+
     for(let y=L2_PLATFORM_Y;y<L2_PLATFORM_Y+L2_PLATFORM_H;y++){
       for(let x=L2_PLATFORM_X;x<L2_PLATFORM_X+L2_PLATFORM_W;x++){
         drawRaisedLevel2Tile(
@@ -2668,10 +2851,17 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
       let offset=0;
       let alpha=1;
 
+      let shakeX=0;
+      let shakeY=0;
+
       if(state==="warning"){
         const timing=level2Schedule.get(x+","+y);
         const elapsed=now-level2ChallengeAt-timing.warningAt;
-        const pulse=.28+.30*(.5+.5*Math.sin(elapsed/100));
+        const pulse=.30+.34*(.5+.5*Math.sin(elapsed/90));
+        const urgency=Math.max(0,Math.min(1,elapsed/1700));
+        const shake=tile*(.018+.026*urgency);
+        shakeX=Math.sin(elapsed*.095+x*3.1+y)*shake;
+        shakeY=Math.cos(elapsed*.12+y*2.7+x)*shake*.55;
         tint=`rgba(225,24,24,${pulse})`;
       }
 
@@ -2684,8 +2874,8 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
 
       drawRaisedLevel2Tile(
         tex.oak,
-        ox+x*tile,
-        oy+y*tile,
+        ox+x*tile+shakeX,
+        oy+y*tile+shakeY,
         tile,
         level2Phase==="exit" ? tile*.12 : tile*.27,
         "#8a5a2b",
@@ -2715,6 +2905,7 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
 
   drawLevel2Door("left",tile,ox,oy,leftDoorLight);
   drawLevel2Door("right",tile,ox,oy,rightDoorLight);
+  drawLevel2ExitDoorGlow(tile,ox,oy,rightDoorLight);
 
   for(const t of L2_TORCHES){
     drawLevel2Torch(tile,ox,oy,t);
@@ -2852,14 +3043,35 @@ function drawLevel2Scene(tile,ox,oy,overview=false){
       ctx.fillStyle="#fff";
       ctx.strokeText(p.name||"",sx,sy-r-6);
       ctx.fillText(p.name||"",sx,sy-r-6);
+
+      if(bubbleVisible){
+        const bob=Math.sin(Date.now()/330+(p.uid||"").length)*tile*.035;
+
+        for(let i=0;i<3;i++){
+          const phase=(Date.now()/700+i*.31)%1;
+          const bx=sx+bubbleR*(.42+.14*i)+Math.sin(Date.now()/240+i)*tile*.025;
+          const by=sy+bubbleR*.55-phase*tile*.72+bob;
+          const br=Math.max(1.5,tile*(.025+.009*i)*(1-phase*.35));
+          ctx.beginPath();
+          ctx.arc(bx,by,br,0,Math.PI*2);
+          ctx.fillStyle=`rgba(205,245,255,${.62*(1-phase)})`;
+          ctx.fill();
+          ctx.strokeStyle=`rgba(255,255,255,${.54*(1-phase)})`;
+          ctx.lineWidth=1;
+          ctx.stroke();
+        }
+      }
     }
   }
+
+  drawLevel2SplashEffects(tile,ox,oy);
 }
 
 function renderLevel2(){
   const d=Math.max(1,Math.min(2,devicePixelRatio||1));
   ctx.setTransform(d,0,0,d,0,0);
   ctx.imageSmoothingEnabled=false;
+  updateLevel2PhaseHud();
 
   if(currentUser?.role==="spectator" && !followUid){
     const margin=22;
@@ -3219,6 +3431,7 @@ function drownLevel2(){
   level2Falling=false;
   level2FallStart=0;
   resetMovementInput();
+  addLevel2Splash(localPos.x,localPos.y,1.05);
   $("drownOverlay").classList.add("show");
 
   try{
@@ -3245,6 +3458,8 @@ async function startLevel2(game){
   level2BubblePlaybackToken++;
   level2BubbleFlying=false;
   level2BubbleFlightStart=0;
+  level2SplashEffects=[];
+  $("level2PhaseHud").classList.remove("hidden");
   $("bubbleSequence").classList.remove("show");
   $("bubbleSequence").classList.add("hidden");
   $("drownOverlay").classList.remove("show");
@@ -3479,6 +3694,7 @@ function showGameToast(message){
 
 async function startLevel1(game){
   currentLevel=1;
+  $("level2PhaseHud").classList.add("hidden");
   $("jumpButton").classList.add("hidden");
   gameStartedHandled=true;
   playerFinished=false;
@@ -4046,6 +4262,7 @@ async function enterLevel2Portal(){
 
   finishingLevel=true;
   playerFinished=true;
+  $("level2PhaseHud").classList.add("hidden");
   level2Jumping=false;
   level2BubbleActive=false;
   level2BubbleSolved=false;
