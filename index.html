@@ -904,6 +904,7 @@ level2Audio.volume = 0.16;
 
 function tryStartAmbient(){
   if(gameScreen.style.display !== "block") return;
+  if(playerFinished || finishingLevel || $("portalWait").classList.contains("show")) return;
 
   if(currentLevel===2){
     level2Audio.play().catch(()=>{});
@@ -3520,9 +3521,10 @@ async function enterLevel2Portal(){
 
   const text=$("portalWait").querySelector(".portalText");
   if(text) text.textContent="Oczekiwanie aż wszyscy przejdą przez drzwi";
-  $("portalWait").classList.add("show");
 
+  ambientAudio.pause();
   level2Audio.pause();
+  $("portalWait").classList.add("show");
 
   try{
     portalAudio.currentTime=0;
@@ -3539,6 +3541,7 @@ async function enterLevel2Portal(){
     $("portalWait").classList.remove("show");
     finishingLevel=false;
     playerFinished=false;
+    portalAudio.pause();
     level2Audio.play().catch(()=>{});
   }
 }
@@ -3572,23 +3575,19 @@ async function enterPortal(){
   moveVec={x:0,y:0};
   keyVec={x:0,y:0};
 
+  ambientAudio.pause();
+  level2Audio.pause();
   $("portalWait").classList.add("show");
 
   try{
+    portalAudio.currentTime=0;
+    portalAudio.play().catch(()=>{});
+
     await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
       x:+localPos.x.toFixed(3),
       y:+localPos.y.toFixed(3),
       finishedLevel1:true
     });
-
-    if(currentLevel===1){
-      ambientAudio.pause();
-
-      try{
-        portalAudio.currentTime=0;
-        await portalAudio.play();
-      }catch(_){}
-    }
   }catch(err){
     console.error(err);
 
@@ -3596,6 +3595,8 @@ async function enterPortal(){
       $("portalWait").classList.remove("show");
       finishingLevel=false;
       playerFinished=false;
+      portalAudio.pause();
+      ambientAudio.play().catch(()=>{});
     }
   }
 }
