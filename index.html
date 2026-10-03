@@ -547,71 +547,6 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
   text-shadow:0 3px 0 #00384b;
 }
 #drownOverlay.show{display:flex}
-#penaltyRoomUI{
-  position:fixed;
-  z-index:111;
-  inset:0;
-  display:none;
-  align-items:flex-end;
-  justify-content:center;
-  padding:0 14px max(12px,env(safe-area-inset-bottom));
-  pointer-events:none;
-}
-#penaltyRoomUI.show{display:flex}
-#penaltyRoomUI .penaltyBox{
-  width:min(470px,94vw);
-  pointer-events:auto;
-  background:rgba(8,8,10,.9);
-  border:2px solid #55555e;
-  border-radius:12px;
-  box-shadow:0 10px 30px rgba(0,0,0,.55);
-  padding:10px 12px 11px;
-  color:#fff;
-  backdrop-filter:blur(5px);
-}
-#penaltyRoomUI .penaltyTitle{
-  font:900 15px/1.15 system-ui,-apple-system,"Segoe UI",sans-serif;
-  margin-bottom:2px;
-}
-#penaltyRoomUI .penaltyText{
-  font:500 12px/1.25 system-ui,-apple-system,"Segoe UI",sans-serif;
-  color:#c9c9d0;
-  margin-bottom:8px;
-}
-#penaltyRoomUI .penaltyAnswerRow{
-  display:flex;
-  gap:8px;
-}
-#penaltyAnswer{
-  flex:1;
-  min-width:0;
-  height:40px;
-  border-radius:8px;
-  border:2px solid #5b5b64;
-  background:#111116;
-  color:#fff;
-  padding:0 11px;
-  font:900 18px/1 monospace;
-  outline:none;
-}
-#penaltyAnswer:focus{
-  border-color:#caa33f;
-}
-#penaltySubmit{
-  height:40px;
-  padding:0 15px;
-  border-radius:8px;
-  border:2px solid #7d6525;
-  background:#d8ac36;
-  color:#111;
-  font:900 13px/1 system-ui,-apple-system,"Segoe UI",sans-serif;
-}
-#penaltyError{
-  min-height:16px;
-  margin-top:6px;
-  color:#ff9393;
-  font:700 12px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;
-}
 
 </style>
 </head>
@@ -716,17 +651,6 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
   <div class="portalText">Oczekiwanie aż wszyscy dojdą do drzwi</div>
 </div>
 <div id="drownOverlay"><div>Utonąłeś</div></div>
-<div id="penaltyRoomUI" class="hidden">
-  <div class="penaltyBox">
-    <div class="penaltyTitle">Odpowiedz, aby wrócić</div>
-    <div class="penaltyText">Wpisz wynik działania z tablicy.</div>
-    <div class="penaltyAnswerRow">
-      <input id="penaltyAnswer" inputmode="numeric" autocomplete="off" placeholder="Wpisz wynik">
-      <button id="penaltySubmit">Odpowiedz</button>
-    </div>
-    <div id="penaltyError"></div>
-  </div>
-</div>
 
 <div id="rotateScreen">
   <div class="rotateBox"><span class="phone">📱</span>Obróć telefon poziomo, aby grać.</div>
@@ -854,20 +778,6 @@ const L2_TORCHES = [
   {x:4.5,y:14.5,visible:false},
   {x:29.5,y:14.5,visible:false}
 ];
-const P2_COLS = 18;
-const P2_ROWS = 11;
-const P2_BENCHES = [
-  {x:4.0,y:3.0},
-  {x:7.0,y:3.0},
-  {x:10.0,y:3.0},
-  {x:4.0,y:5.5},
-  {x:7.0,y:5.5},
-  {x:10.0,y:5.5},
-  {x:4.0,y:8.0},
-  {x:7.0,y:8.0},
-  {x:10.0,y:8.0}
-];
-const P2_BOARD = {x:15.55,y:5.45};
 
 
 let maze = null;
@@ -910,9 +820,6 @@ let level2Jumping = false;
 let level2JumpStart = 0;
 let level2LastMoveFrame = 0;
 let level2ExitScreenRect = null;
-let level2PenaltyActive = false;
-let level2PenaltyQuestion = null;
-let level2PenaltyRespawn = {x:2.5,y:7.5};
 const avatarImageCache = new Map();
 
 let moveTarget = null;
@@ -1020,9 +927,7 @@ for (const [k,u] of Object.entries({
   oak:"assets/oak_plank.png",
   spruce:"assets/spruce_plank.png",
   door:"assets/door.png",
-  torch:"assets/torch.png",
-  bench:"assets/lawka.png",
-  board:"assets/tablica.png"
+  torch:"assets/torch.png"
 })) {
   tex[k] = new Image();
   tex[k].src = u;
@@ -2406,281 +2311,6 @@ function getLevel2SafeRespawn(){
   return {x:2.5,y:7.5};
 }
 
-function randomLevel2MathQuestion(){
-  const rnd=seededRandom((Date.now()^((auth.currentUser?.uid||"").length*2654435761))>>>0);
-  const type=Math.floor(rnd()*5);
-
-  if(type===0){
-    const a=2+Math.floor(rnd()*18);
-    const b=2+Math.floor(rnd()*18);
-    return {text:`${a} + ${b} = ?`, answer:String(a+b)};
-  }
-
-  if(type===1){
-    const a=20+Math.floor(rnd()*80);
-    const b=2+Math.floor(rnd()*Math.min(18,a-1));
-    return {text:`${a} - ${b} = ?`, answer:String(a-b)};
-  }
-
-  if(type===2){
-    const a=2+Math.floor(rnd()*11);
-    const b=2+Math.floor(rnd()*11);
-    return {text:`${a} × ${b} = ?`, answer:String(a*b)};
-  }
-
-  if(type===3){
-    const b=2+Math.floor(rnd()*11);
-    const q=2+Math.floor(rnd()*12);
-    return {text:`${b*q} ÷ ${b} = ?`, answer:String(q)};
-  }
-
-  if(rnd()<0.5){
-    const base=2+Math.floor(rnd()*6);
-    const exp=2+Math.floor(rnd()*3);
-    return {text:`${base}^${exp} = ?`, answer:String(base**exp)};
-  }
-
-  const root=2+Math.floor(rnd()*12);
-  return {text:`√${root*root} = ?`, answer:String(root)};
-}
-
-function openLevel2PenaltyRoom(){
-  level2PenaltyActive=true;
-  level2Jumping=false;
-  moveTarget=null;
-  resetMovementInput();
-  level2PenaltyRespawn=getLevel2SafeRespawn();
-  level2PenaltyQuestion=randomLevel2MathQuestion();
-  $("penaltyError").textContent="";
-  $("penaltyAnswer").value="";
-  $("penaltyRoomUI").classList.add("show");
-  $("penaltyRoomUI").classList.remove("hidden");
-  setTimeout(()=>{
-    if(level2PenaltyActive) $("penaltyAnswer").focus();
-  },50);
-}
-
-async function submitLevel2PenaltyAnswer(){
-  if(!level2PenaltyActive || !level2PenaltyQuestion) return;
-
-  const value=$("penaltyAnswer").value.trim().replace(",",".");
-  if(!value){
-    $("penaltyError").textContent="Wpisz odpowiedź.";
-    return;
-  }
-
-  if(value!==level2PenaltyQuestion.answer){
-    $("penaltyError").textContent="Zła odpowiedź. Spróbuj jeszcze raz.";
-    $("penaltyAnswer").select();
-    return;
-  }
-
-  level2PenaltyActive=false;
-  level2PenaltyQuestion=null;
-  $("penaltyRoomUI").classList.remove("show");
-  $("penaltyRoomUI").classList.add("hidden");
-  $("penaltyError").textContent="";
-  $("penaltyAnswer").value="";
-
-  localPos={...level2PenaltyRespawn};
-  spectatorPos={...localPos};
-  moveTarget=null;
-  level2Drowning=false;
-  $("drownOverlay").classList.remove("show");
-
-  if(auth.currentUser && currentGameCode){
-    await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
-      x:+localPos.x.toFixed(3),
-      y:+localPos.y.toFixed(3),
-      level:2
-    }).catch(()=>{});
-  }
-}
-
-function drawPenaltyBench(img,cx,cy,tile){
-  ctx.save();
-  ctx.translate(cx,cy);
-  ctx.rotate(Math.PI/2);
-
-  const size=tile*1.28;
-  ctx.fillStyle="rgba(0,0,0,.28)";
-  ctx.beginPath();
-  ctx.ellipse(tile*.1,tile*.18,size*.43,size*.27,0,0,Math.PI*2);
-  ctx.fill();
-
-  if(img.complete && img.naturalWidth){
-    ctx.drawImage(img,-size/2,-size/2,size,size);
-  }else{
-    ctx.fillStyle="#5966a8";
-    ctx.fillRect(-size*.42,-size*.25,size*.84,size*.5);
-  }
-
-  ctx.restore();
-}
-
-function drawPenaltyRoomScene(tile,ox,oy){
-  ctx.fillStyle="#000";
-  ctx.fillRect(0,0,innerWidth,innerHeight);
-
-  for(let y=0;y<P2_ROWS;y++){
-    for(let x=0;x<P2_COLS;x++){
-      const px=ox+x*tile;
-      const py=oy+y*tile;
-
-      if(x===0 || y===0 || x===P2_COLS-1 || y===P2_ROWS-1){
-        drawRaisedLevel2Tile(
-          tex.wall,
-          px,
-          py,
-          tile,
-          tile*.30,
-          "#555",
-          null,
-          0,
-          1,
-          .92
-        );
-      }else{
-        drawRaisedLevel2Tile(
-          tex.oak,
-          px,
-          py,
-          tile,
-          tile*.11,
-          "#8a5a2b",
-          null,
-          0,
-          1,
-          .88
-        );
-      }
-    }
-  }
-
-  ctx.fillStyle="rgba(24,12,4,.18)";
-  ctx.fillRect(
-    ox+tile*1.1,
-    oy+tile*1.1,
-    tile*(P2_COLS-2.2),
-    tile*(P2_ROWS-2.2)
-  );
-
-  for(const b of P2_BENCHES){
-    drawPenaltyBench(tex.bench,ox+b.x*tile,oy+b.y*tile,tile);
-  }
-
-  const boardX=ox+P2_BOARD.x*tile;
-  const boardY=oy+P2_BOARD.y*tile;
-  let bw=tile*2.45;
-  let bh=tile*4.75;
-
-  ctx.save();
-  ctx.fillStyle="rgba(0,0,0,.36)";
-  ctx.beginPath();
-  ctx.ellipse(
-    boardX-tile*.12,
-    boardY+tile*1.95,
-    tile*.72,
-    tile*.33,
-    0,
-    0,
-    Math.PI*2
-  );
-  ctx.fill();
-
-  if(tex.board.complete && tex.board.naturalWidth){
-    const scale=bh/tex.board.naturalHeight;
-    bw=tex.board.naturalWidth*scale;
-    ctx.drawImage(
-      tex.board,
-      boardX-bw/2,
-      boardY-bh/2,
-      bw,
-      bh
-    );
-  }else{
-    ctx.fillStyle="#4f773e";
-    ctx.fillRect(boardX-bw/2,boardY-bh/2,bw,bh);
-  }
-  ctx.restore();
-
-  const q=level2PenaltyQuestion?.text || "?";
-
-  ctx.save();
-  ctx.translate(boardX-tile*.02,boardY);
-  ctx.rotate(-0.47);
-  ctx.transform(1,0,0,.92,0,0);
-  ctx.textAlign="center";
-  ctx.textBaseline="middle";
-  ctx.font=`900 ${Math.max(17,Math.floor(tile*.31))}px system-ui`;
-  ctx.lineWidth=5;
-  ctx.strokeStyle="rgba(25,31,18,.78)";
-  ctx.fillStyle="#f7f4d8";
-  ctx.strokeText(q,0,0,tile*1.75);
-  ctx.fillText(q,0,0,tile*1.75);
-  ctx.restore();
-
-  const me={
-    uid:auth.currentUser?.uid,
-    name:currentUser?.name||"",
-    avatar:avatarData,
-    host:currentUser?.role==="host"
-  };
-  const px=ox+tile*12.35;
-  const py=oy+tile*7.25;
-  const r=Math.max(12,tile*.34);
-  const im=getAvatarImage(me);
-
-  ctx.save();
-  ctx.fillStyle="rgba(0,0,0,.3)";
-  ctx.beginPath();
-  ctx.ellipse(px,py+r*.82,r*.95,r*.34,0,0,Math.PI*2);
-  ctx.fill();
-
-  ctx.beginPath();
-  ctx.arc(px,py,r,0,Math.PI*2);
-  ctx.clip();
-
-  if(im && im.complete && im.naturalWidth){
-    const side=Math.min(im.naturalWidth,im.naturalHeight);
-    ctx.drawImage(
-      im,
-      (im.naturalWidth-side)/2,
-      (im.naturalHeight-side)/2,
-      side,
-      side,
-      px-r,
-      py-r,
-      r*2,
-      r*2
-    );
-  }else{
-    ctx.fillStyle=me.host ? "#d6b25e" : "#b8b8bd";
-    ctx.fillRect(px-r,py-r,r*2,r*2);
-    ctx.fillStyle="#18181b";
-    ctx.font=`900 ${Math.max(12,r*.85)}px monospace`;
-    ctx.textAlign="center";
-    ctx.textBaseline="middle";
-    ctx.fillText((me.name||"?").trim().charAt(0).toUpperCase(),px,py+1);
-  }
-  ctx.restore();
-
-  ctx.beginPath();
-  ctx.arc(px,py,r+1,0,Math.PI*2);
-  ctx.strokeStyle="#fff";
-  ctx.lineWidth=2;
-  ctx.stroke();
-
-  ctx.textAlign="center";
-  ctx.textBaseline="bottom";
-  ctx.font=`800 ${Math.max(11,Math.floor(tile*.19))}px system-ui`;
-  ctx.lineWidth=4;
-  ctx.strokeStyle="#000";
-  ctx.fillStyle="#fff";
-  ctx.strokeText(me.name,px,py-r-5);
-  ctx.fillText(me.name,px,py-r-5);
-}
-
 function drawLevel2Scene(tile,ox,oy,overview=false){
   const now=Date.now();
   const light=buildLevel2LightMap();
@@ -3014,20 +2644,6 @@ function renderLevel2(){
   ctx.setTransform(d,0,0,d,0,0);
   ctx.imageSmoothingEnabled=false;
 
-  if(level2PenaltyActive){
-    const sideMargin=Math.max(14,innerWidth*.018);
-    const topMargin=Math.max(12,innerHeight*.025);
-    const bottomReserve=Math.min(112,Math.max(84,innerHeight*.18));
-    const tile=Math.min(
-      (innerWidth-sideMargin*2)/P2_COLS,
-      (innerHeight-topMargin-bottomReserve)/P2_ROWS
-    );
-    const ox=(innerWidth-P2_COLS*tile)/2;
-    const oy=topMargin+(innerHeight-topMargin-bottomReserve-P2_ROWS*tile)/2;
-    drawPenaltyRoomScene(tile,ox,oy);
-    return;
-  }
-
   if(currentUser?.role==="spectator" && !followUid){
     const margin=22;
     const tile=Math.min(
@@ -3116,7 +2732,7 @@ function maybeAdvanceLevel2Host(){
 }
 
 function drownLevel2(){
-  if(level2Drowning || level2PenaltyActive || currentUser?.role==="spectator") return;
+  if(level2Drowning || currentUser?.role==="spectator") return;
 
   level2Drowning=true;
   level2Jumping=false;
@@ -3129,9 +2745,20 @@ function drownLevel2(){
   }catch(_){}
 
   setTimeout(()=>{
+    localPos=getLevel2SafeRespawn();
+    spectatorPos={...localPos};
+    moveTarget=null;
+    level2Drowning=false;
     $("drownOverlay").classList.remove("show");
-    openLevel2PenaltyRoom();
-  },1150);
+
+    if(auth.currentUser && currentGameCode){
+      update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
+        x:+localPos.x.toFixed(3),
+        y:+localPos.y.toFixed(3),
+        level:2
+      }).catch(()=>{});
+    }
+  },850);
 }
 
 async function startLevel2(game){
@@ -3140,10 +2767,6 @@ async function startLevel2(game){
   playerFinished=false;
   finishingLevel=false;
   level2Drowning=false;
-  level2PenaltyActive=false;
-  level2PenaltyQuestion=null;
-  $("penaltyRoomUI").classList.remove("show");
-  $("penaltyRoomUI").classList.add("hidden");
   $("drownOverlay").classList.remove("show");
   level2Jumping=false;
   level2JumpStart=0;
@@ -3667,7 +3290,7 @@ function updateMovement(now=performance.now()){
     return;
   }
 
-  if(playerFinished || level2Drowning || level2PenaltyActive){
+  if(playerFinished || level2Drowning){
     level2LastMoveFrame=now;
     return;
   }
@@ -3798,15 +3421,6 @@ $("jumpButton").addEventListener("pointerdown",e=>{
   startLevel2Jump();
 });
 
-$("penaltySubmit").addEventListener("click",()=>{
-  submitLevel2PenaltyAnswer();
-});
-$("penaltyAnswer").addEventListener("keydown",e=>{
-  if(e.key==="Enter"){
-    e.preventDefault();
-    submitLevel2PenaltyAnswer();
-  }
-});
 
 
 gameScreen.addEventListener("contextmenu",e=>{
@@ -3987,7 +3601,7 @@ async function enterPortal(){
 }
 
 canvas.addEventListener("pointerup",e=>{
-  if(currentUser?.role==="spectator" || level2PenaltyActive) return;
+  if(currentUser?.role==="spectator") return;
 
   const r=canvas.getBoundingClientRect();
   const x=e.clientX-r.left;
