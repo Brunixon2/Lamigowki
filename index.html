@@ -35,6 +35,7 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
 .gameRow{display:flex;gap:9px}
 .gameRow input{flex:1;min-width:0}
 .gameRow button{width:116px;background:#f4f4f5;color:#111113}
+#rejoinGame{margin-top:10px;background:#27272c;color:#fff;border:1px solid #4b4b52}
 .gameCode{font-family:monospace;font-size:25px;letter-spacing:3px;font-weight:800;margin:5px 0 13px}
 .hidden{display:none!important}
 .playerList{list-style:none;padding:0;margin:0}
@@ -285,21 +286,82 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
 #spectatorPanel{
   position:absolute;
   z-index:25;
-  right:max(12px,env(safe-area-inset-right));
+  left:max(12px,env(safe-area-inset-left));
   top:max(12px,env(safe-area-inset-top));
-  width:190px;
+  width:min(230px,42vw);
+  max-height:calc(100vh - 24px);
+  overflow:auto;
   background:#090909e8;
   border:2px solid #464646;
-  border-radius:4px;
-  padding:8px;
+  border-radius:6px;
+  padding:10px;
+  box-shadow:0 8px 28px #0009;
 }
 #spectatorPanel::before{
   content:"OBSERWATOR";
   display:block;
   color:#aaa;
   font:800 11px monospace;
-  margin-bottom:6px;
+  margin-bottom:7px;
   letter-spacing:1px;
+}
+#spectatorCodeLabel{
+  color:#888;
+  font:800 10px monospace;
+  letter-spacing:1px;
+  text-transform:uppercase;
+}
+#spectatorGameCode{
+  margin:2px 0 10px;
+  color:#fff;
+  font:1000 24px/1 monospace;
+  letter-spacing:4px;
+}
+#spectatorPlayersTitle{
+  margin:10px 0 6px;
+  color:#aaa;
+  font:800 11px monospace;
+  letter-spacing:.6px;
+}
+#spectatorPlayerList{
+  display:flex;
+  flex-direction:column;
+  gap:5px;
+}
+.spectatorPlayerItem{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  width:100%;
+  min-height:34px;
+  height:auto;
+  padding:6px 8px;
+  margin:0;
+  border:1px solid #3f3f46;
+  border-radius:5px;
+  background:#1b1b1f;
+  color:#eee;
+  text-align:left;
+  font:700 11px/1.15 system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+.spectatorPlayerItem.active{
+  border-color:#9a9aa2;
+  background:#29292f;
+}
+.spectatorPlayerItem.offline{opacity:.48}
+.spectatorPlayerDot{
+  width:7px;
+  height:7px;
+  flex:none;
+  border-radius:50%;
+  background:#22c55e;
+}
+.spectatorPlayerItem.offline .spectatorPlayerDot{background:#71717a}
+.spectatorPlayerText{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
 }
 #spectatorPanel select{
   width:100%;
@@ -311,16 +373,16 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
 }
 #spectatorPanel button{
   width:100%;
-  height:40px;
+  height:38px;
   margin:0;
   border-radius:5px;
   background:#27272c;
   color:#fff;
   border:1px solid #4b4b52;
-  font-size:13px;
+  font-size:12px;
 }
-#spectateOptions{margin-top:7px}
-#spectateOverview{margin-top:7px!important}
+#spectateOverview{margin-top:8px!important}
+#spectateOptions,#spectateSelect,#spectateToggle{display:none!important}
 #finishWait{
   position:absolute;
   z-index:26;
@@ -679,6 +741,7 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
         <input id="gameCodeInput" inputmode="numeric" maxlength="4" placeholder="Kod Gry">
         <button id="joinGame">Dołącz!</button>
       </div>
+      <button id="rejoinGame" class="hidden">Dołącz ponownie</button>
     </div>
 
     <div class="card">
@@ -714,10 +777,14 @@ button{width:100%;height:56px;border:0;border-radius:12px;font-size:17px;font-we
 <div id="joy"><div id="joyKnob"></div></div>
   <button id="jumpButton" class="hidden">SKOK</button>
   <div id="spectatorPanel" class="hidden">
-    <button id="spectateToggle">Oglądaj gracza</button>
+    <div id="spectatorCodeLabel">Kod gry</div>
+    <div id="spectatorGameCode">----</div>
+    <button id="spectateOverview">Cała mapa</button>
+    <div id="spectatorPlayersTitle">Gracze</div>
+    <div id="spectatorPlayerList"></div>
+    <button id="spectateToggle" class="hidden">Gracze</button>
     <div id="spectateOptions" class="hidden">
       <select id="spectateSelect"><option value="">Wybierz gracza</option></select>
-      <button id="spectateOverview">Cała mapa</button>
     </div>
   </div>
   <div id="finishWait">Czekamy na pozostałych… <span id="finishCount"></span></div>
@@ -821,6 +888,38 @@ function authEmail(login) {
 
 function authPassword(pin) {
   return "LG-" + pin + "-26";
+}
+
+function lastGameStorageKey(){
+  return auth.currentUser ? `lamiglowki_last_game_${auth.currentUser.uid}` : "";
+}
+
+function rememberGameCode(code){
+  if(!auth.currentUser || !code) return;
+  try{ localStorage.setItem(lastGameStorageKey(),String(code)); }catch(_){}
+  updateRejoinButton();
+}
+
+function savedGameCode(){
+  if(!auth.currentUser) return "";
+  try{ return localStorage.getItem(lastGameStorageKey()) || ""; }catch(_){ return ""; }
+}
+
+function updateRejoinButton(){
+  const button=$("rejoinGame");
+  if(!button) return;
+  const code=savedGameCode();
+  if(/^\d{4}$/.test(code)){
+    button.textContent=`Dołącz ponownie • ${code}`;
+    button.classList.remove("hidden");
+  }else{
+    button.classList.add("hidden");
+  }
+}
+
+function ownPlayerState(game=currentGameData){
+  if(!auth.currentUser) return null;
+  return game?.players?.[auth.currentUser.uid] || null;
 }
 
 
@@ -1583,7 +1682,7 @@ function collectTorchSources(){
   }
 
   for(const [uid,p] of Object.entries(remotePlayers)){
-    if(p.spectator || p.finishedLevel1 || p.x==null || p.y==null) continue;
+    if(p.spectator || p.connected===false || p.finishedLevel1 || p.x==null || p.y==null) continue;
     if(uid===auth.currentUser?.uid && currentUser?.role!=="spectator") continue;
     sources.push({x:+p.x,y:+p.y});
   }
@@ -1874,7 +1973,7 @@ function renderSpectatorFollow(uid){
   }
 
   for(const p of Object.values(remotePlayers)){
-    if(p.spectator || p.x==null || p.y==null) continue;
+    if(p.spectator || p.connected===false || p.x==null || p.y==null) continue;
     const tx=Math.floor(+p.x);
     const ty=Math.floor(+p.y);
     if((light?.[ty]?.[tx]||0)<=0) continue;
@@ -1962,7 +2061,7 @@ function renderSpectatorOverview(){
   ctx.restore();
 
   for(const p of Object.values(remotePlayers)){
-    if(p.spectator || p.x==null || p.y==null) continue;
+    if(p.spectator || p.connected===false || p.x==null || p.y==null) continue;
 
     const tx=Math.floor(+p.x);
     const ty=Math.floor(+p.y);
@@ -2202,16 +2301,13 @@ function updateLevel2Jump(now){
   }
 }
 
-function moveLevel2Continuous(mv,dt){
+function moveContinuous(mv,dt,speed,canOccupy){
   const len=Math.hypot(mv.x,mv.y);
   if(len<.08) return;
 
-  const speed=L2_MOVE_SPEED*(level2Jumping?L2_JUMP_SPEED_MULTIPLIER:1);
   const scale=len>1 ? 1/len : 1;
   const dx=mv.x*scale*speed*dt;
   const dy=mv.y*scale*speed*dt;
-  const canOccupy=level2Jumping ? canMoveLevel2InAir : canMoveLevel2;
-
   const nx=localPos.x+dx;
   const ny=localPos.y+dy;
 
@@ -2221,13 +2317,18 @@ function moveLevel2Continuous(mv,dt){
     return;
   }
 
-  if(canOccupy(nx,localPos.y)){
-    localPos.x=nx;
-  }
+  if(canOccupy(nx,localPos.y)) localPos.x=nx;
+  if(canOccupy(localPos.x,ny)) localPos.y=ny;
+}
 
-  if(canOccupy(localPos.x,ny)){
-    localPos.y=ny;
-  }
+function moveLevel2Continuous(mv,dt){
+  const speed=L2_MOVE_SPEED*(level2Jumping?L2_JUMP_SPEED_MULTIPLIER:1);
+  const canOccupy=level2Jumping ? canMoveLevel2InAir : canMoveLevel2;
+  moveContinuous(mv,dt,speed,canOccupy);
+}
+
+function moveLevel1Continuous(mv,dt){
+  moveContinuous(mv,dt,L2_MOVE_SPEED,canMove);
 }
 
 function drawAnimatedWater(x,y,size,now){
@@ -2359,7 +2460,7 @@ function collectLevel2TorchSources(){
   }
 
   for(const [uid,p] of Object.entries(remotePlayers)){
-    if(p.spectator || p.level!==2 || p.x==null || p.y==null) continue;
+    if(p.spectator || p.connected===false || p.level!==2 || p.x==null || p.y==null) continue;
     if(uid===auth.currentUser?.uid && currentUser?.role!=="spectator") continue;
     sources.push({x:+p.x,y:+p.y});
   }
@@ -3121,7 +3222,7 @@ function applyLevel2GameState(game){
 }
 
 function allLevel2PlayersOnPlatform(){
-  const active=Object.values(remotePlayers).filter(p=>!p.spectator);
+  const active=Object.values(remotePlayers).filter(p=>!p.spectator && p.connected!==false);
   if(!active.length) return false;
 
   return active.every(p=>
@@ -3796,7 +3897,7 @@ function level3DrawBackground(tile,ox,oy){
 
       level3DrawTextureTile(img,px,py,tile);
 
-      ctx.fillStyle="rgba(0,0,0,.34)";
+      ctx.fillStyle="rgba(0,0,0,.46)";
       ctx.fillRect(px,py,tile+1,tile+1);
     }
   }
@@ -4153,6 +4254,45 @@ function level3ApplyLighting(tile,ox,oy,maps){
   }
 }
 
+function level3DrawReadability(tile,ox,oy,now){
+  const platforms=level3Platforms(now);
+  ctx.save();
+  ctx.lineCap="round";
+
+  for(const p of platforms){
+    const x=ox+p.x*tile;
+    const y=oy+p.y*tile;
+    const w=p.w*tile;
+    const moving=p.id==="moving";
+    const alpha=moving ? .5+.18*(.5+.5*Math.sin(now/180)) : .28;
+    ctx.strokeStyle=`rgba(225,229,232,${alpha})`;
+    ctx.lineWidth=Math.max(1,tile*(moving?.045:.028));
+    ctx.beginPath();
+    ctx.moveTo(x+tile*.06,y+1);
+    ctx.lineTo(x+w-tile*.06,y+1);
+    ctx.stroke();
+  }
+
+  const moving=level3MovingPlatform(now);
+  const cx=ox+(moving.x+moving.w/2)*tile;
+  ctx.strokeStyle="rgba(210,214,220,.13)";
+  ctx.lineWidth=Math.max(1,tile*.018);
+  ctx.setLineDash([tile*.12,tile*.14]);
+  ctx.beginPath();
+  ctx.moveTo(cx,oy+8.45*tile);
+  ctx.lineTo(cx,oy+11.05*tile);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  if(level3ExitScreenRect){
+    const r=level3ExitScreenRect;
+    ctx.strokeStyle="rgba(255,220,132,.42)";
+    ctx.lineWidth=Math.max(1,tile*.025);
+    ctx.strokeRect(r.x-1,r.y-1,r.w+2,r.h+2);
+  }
+  ctx.restore();
+}
+
 function drawLevel3Player(p,tile,ox,oy){
   const sx=ox+(+p.x)*tile;
   const sy=oy+(+p.y-L3_PLAYER_H*.52)*tile;
@@ -4234,9 +4374,11 @@ function renderLevel3(){
   level3DrawWindow(tile,ox,oy,maps);
   level3DrawTorch(tile,ox,oy);
   level3DrawGhost(tile,ox,oy,now);
+  level3DrawReadability(tile,ox,oy,now);
 
   const players=Object.values(remotePlayers).filter(p=>
     !p.spectator &&
+    p.connected!==false &&
     p.level===3 &&
     !p.finishedLevel3 &&
     p.x!=null &&
@@ -4341,7 +4483,7 @@ function updateLevel3Movement(mv,now=performance.now()){
 
   level3PrevMovingY=movingY;
 
-  level3Vel.x=Math.max(-1,Math.min(1,mv.x))*L3_MOVE_SPEED;
+  level3Vel.x=Math.max(-1,Math.min(1,mv.x))*L2_MOVE_SPEED;
   level3MoveX(level3Vel.x*dt);
 
   const oldY=localPos.y;
@@ -4385,7 +4527,14 @@ function updateLevel3Movement(mv,now=performance.now()){
 async function startLevel3(game){
   currentLevel=3;
   gameStartedHandled=true;
-  playerFinished=false;
+  const own=ownPlayerState(game);
+  const resume=!!(
+    own &&
+    Number(own.level)===3 &&
+    Number.isFinite(+own.x) &&
+    Number.isFinite(+own.y)
+  );
+  playerFinished=!!own?.finishedLevel3;
   finishingLevel=false;
   level2Drowning=false;
   level2BubbleActive=false;
@@ -4411,7 +4560,15 @@ async function startLevel3(game){
   document.body.classList.add("game-running");
   document.body.style.overflow="hidden";
 
-  level3Respawn();
+  if(resume){
+    localPos={x:+own.x,y:+own.y};
+    spectatorPos={...localPos};
+    level3Vel={x:0,y:0};
+    level3OnGround=false;
+    level3GroundId="";
+  }else{
+    level3Respawn();
+  }
   moveTarget=null;
   resetMovementInput();
   level3LastMoveFrame=performance.now();
@@ -4445,21 +4602,40 @@ async function startLevel3(game){
     $("jumpButton").classList.remove("hidden");
     $("spectatorPanel").classList.add("hidden");
 
-    await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
+    const payload={
       level:3,
       x:+localPos.x.toFixed(3),
       y:+localPos.y.toFixed(3),
-      finishedLevel3:false
-    }).catch(()=>{});
+      connected:true
+    };
+    if(!resume) payload.finishedLevel3=false;
+    await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),payload).catch(()=>{});
   }
 
+  if(playerFinished){
+    resetMovementInput();
+    spookedAudio.pause();
+    $("portalWait").classList.add("show");
+    const text=$("portalWait").querySelector(".portalText");
+    if(text) text.textContent="Oczekiwanie na pozostałych graczy";
+    portalAudio.play().catch(()=>{});
+  }
+
+  listenLevelPlayers(currentGameCode);
   resizeCanvas();
 }
 
 async function startLevel2(game){
   currentLevel=2;
   gameStartedHandled=true;
-  playerFinished=false;
+  const own=ownPlayerState(game);
+  const resume=!!(
+    own &&
+    Number(own.level)===2 &&
+    Number.isFinite(+own.x) &&
+    Number.isFinite(+own.y)
+  );
+  playerFinished=!!own?.finishedLevel2;
   finishingLevel=false;
   level2Drowning=false;
   level2BubbleActive=false;
@@ -4503,7 +4679,7 @@ async function startLevel2(game){
   buildLevel2Schedule(level2Seed);
   applyLevel2GameState(game);
 
-  localPos={x:2.5,y:7.5};
+  localPos=resume ? {x:+own.x,y:+own.y} : {x:2.5,y:7.5};
   spectatorPos={x:localPos.x,y:localPos.y};
   moveTarget=null;
   resetMovementInput();
@@ -4532,14 +4708,36 @@ async function startLevel2(game){
     $("jumpButton").classList.remove("hidden");
     $("spectatorPanel").classList.add("hidden");
 
-    await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
+    const payload={
       level:2,
       x:+localPos.x.toFixed(3),
       y:+localPos.y.toFixed(3),
-      finishedLevel2:false
-    }).catch(()=>{});
+      connected:true
+    };
+    if(!resume) payload.finishedLevel2=false;
+    await update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),payload).catch(()=>{});
+
+    if(resume && own?.bubbleLevel2 && !playerFinished){
+      level2BubbleActive=true;
+      level2BubbleSolved=!!own.bubbleSolvedLevel2;
+      level2BubbleSequence=makeLevel2BubbleSequence();
+      level2BubbleIndex=0;
+      updateLevel2BubbleUI();
+      if(level2BubbleSolved) startLevel2BubbleFlight();
+      else playLevel2BubbleSequence(350);
+    }
   }
 
+  if(playerFinished){
+    resetMovementInput();
+    level2Audio.pause();
+    $("portalWait").classList.add("show");
+    const text=$("portalWait").querySelector(".portalText");
+    if(text) text.textContent="Oczekiwanie na pozostałych graczy";
+    portalAudio.play().catch(()=>{});
+  }
+
+  listenLevelPlayers(currentGameCode);
   resizeCanvas();
 }
 
@@ -4684,7 +4882,7 @@ function renderGame(){
   }
 
   for(const p of Object.values(all)){
-    if(p.spectator || p.x==null || p.y==null) continue;
+    if(p.spectator || p.connected===false || p.x==null || p.y==null) continue;
     const tx=Math.floor(+p.x), ty=Math.floor(+p.y);
     const visible = spectatorFree || (light?.[ty]?.[tx]||0)>0;
     if(visible) drawAvatar(p,cx,cy);
@@ -4713,7 +4911,14 @@ async function startLevel1(game){
   currentLevel=1;
   $("jumpButton").classList.add("hidden");
   gameStartedHandled=true;
-  playerFinished=false;
+  const own=ownPlayerState(game);
+  const resume=!!(
+    own &&
+    Number(own.level)===1 &&
+    Number.isFinite(+own.x) &&
+    Number.isFinite(+own.y)
+  );
+  playerFinished=!!own?.finishedLevel1;
   finishingLevel=false;
   escapePathRevealed=false;
   currentEscapePath=[];
@@ -4735,7 +4940,9 @@ async function startLevel1(game){
   levelWord=(game.levelWord || WORDS[seed%WORDS.length]).slice(0,7).toUpperCase();
   letterCells=pickLetterCells(m.rnd,levelWord.length);
 
-  localPos={x:Math.round((START_X+.5)*2)/2,y:Math.round((START_Y+.5)*2)/2};
+  localPos=resume
+    ? {x:+own.x,y:+own.y}
+    : {x:START_X+.5,y:START_Y+.5};
   spectatorPos={x:localPos.x,y:localPos.y};
   moveTarget=null;
 
@@ -4764,13 +4971,24 @@ async function startLevel1(game){
   }
 
   if(currentUser.role!=="spectator"){
-
-    update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
+    const payload={
+      level:1,
       x:+localPos.x.toFixed(3),
       y:+localPos.y.toFixed(3),
       avatar:avatarData || null,
-      finishedLevel1:false
-    }).catch(()=>{});
+      connected:true
+    };
+    if(!resume) payload.finishedLevel1=false;
+    update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),payload).catch(()=>{});
+  }
+
+  if(playerFinished){
+    resetMovementInput();
+    ambientAudio.pause();
+    $("portalWait").classList.add("show");
+    const text=$("portalWait").querySelector(".portalText");
+    if(text) text.textContent="Oczekiwanie na pozostałych graczy";
+    portalAudio.play().catch(()=>{});
   }
 
   listenLevelPlayers(currentGameCode);
@@ -4800,12 +5018,13 @@ function listenLevelPlayers(code){
 
       if([...select.options].some(o=>o.value===old)){
         select.value=old;
-      }else if(followUid && !remotePlayers[followUid]){
+      }else if(followUid && (!remotePlayers[followUid] || remotePlayers[followUid].connected===false)){
         followUid="";
       }
+      updateSpectatorPanel();
     }
 
-    const active=Object.values(remotePlayers).filter(p=>!p.spectator);
+    const active=Object.values(remotePlayers).filter(p=>!p.spectator && p.connected!==false);
 
     const wasRevealed=escapePathRevealed;
     escapePathRevealed=active.some(p=>p.wordSolved===true);
@@ -4929,11 +5148,13 @@ $("spectateToggle").addEventListener("click",()=>{
 
 $("spectateSelect").addEventListener("change",e=>{
   followUid=e.target.value || "";
+  updateSpectatorPanel();
 });
 
 $("spectateOverview").addEventListener("click",()=>{
   followUid="";
   $("spectateSelect").value="";
+  updateSpectatorPanel();
 });
 
 $("functionsButton").addEventListener("click",()=>{
@@ -5134,40 +5355,30 @@ function updateMovement(now=performance.now()){
     return;
   }
 
-  tryCreateGridTarget(mv);
+  if(currentLevel===1){
+    const dt=Math.min(.04,Math.max(0,(now-level2LastMoveFrame)/1000 || 0));
+    level2LastMoveFrame=now;
+    moveLevel1Continuous(mv,dt);
 
-  if(moveTarget){
-    const dx=moveTarget.x-localPos.x;
-    const dy=moveTarget.y-localPos.y;
-    const dist=Math.hypot(dx,dy);
-
-    if(dist<=GRID_MOVE_SPEED){
-      localPos.x=moveTarget.x;
-      localPos.y=moveTarget.y;
-      moveTarget=null;
-    }else{
-      localPos.x+=dx/dist*GRID_MOVE_SPEED;
-      localPos.y+=dy/dist*GRID_MOVE_SPEED;
+    if(
+      escapePathRevealed &&
+      !playerFinished &&
+      !finishingLevel &&
+      Math.floor(localPos.x)===exitCell.x &&
+      Math.floor(localPos.y)===exitCell.y
+    ){
+      enterPortal();
+      return;
     }
-  }
 
-  if(
-    escapePathRevealed &&
-    !playerFinished &&
-    !finishingLevel &&
-    Math.floor(localPos.x)===exitCell.x &&
-    Math.floor(localPos.y)===exitCell.y
-  ){
-    enterPortal();
-    return;
-  }
-
-  if(Date.now()-lastPosWrite>95){
-    lastPosWrite=Date.now();
-    update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
-      x:+localPos.x.toFixed(3),
-      y:+localPos.y.toFixed(3)
-    }).catch(()=>{});
+    if(Date.now()-lastPosWrite>80){
+      lastPosWrite=Date.now();
+      update(ref(db,`games/${currentGameCode}/players/${auth.currentUser.uid}`),{
+        x:+localPos.x.toFixed(3),
+        y:+localPos.y.toFixed(3),
+        level:1
+      }).catch(()=>{});
+    }
   }
 }
 
@@ -5183,12 +5394,21 @@ function joyMove(e){
   const y=e.clientY-(r.top+r.height/2);
   const len=Math.hypot(x,y);
   const max=38;
-  const k=Math.min(1,max/(len||1));
+  const dead=4;
+  const clamped=Math.min(max,len);
+  const k=len>0 ? clamped/len : 0;
 
   knob.style.transform=`translate(${x*k}px,${y*k}px)`;
+
+  if(len<=dead){
+    moveVec={x:0,y:0};
+    return;
+  }
+
+  const magnitude=Math.min(1,(clamped-dead)/(max-dead));
   moveVec={
-    x:Math.max(-1,Math.min(1,x/max)),
-    y:Math.max(-1,Math.min(1,y/max))
+    x:(x/len)*magnitude,
+    y:(y/len)*magnitude
   };
 }
 
@@ -5775,23 +5995,68 @@ function renderLobby(players = {}) {
 
     const dot = document.createElement("span");
     dot.className = "dot";
-    dot.style.background = "#22c55e";
+    dot.style.background = p.connected===false ? "#71717a" : "#22c55e";
 
     const name = document.createElement("span");
     name.textContent =
       p.name +
-      (p.host ? " — Prowadzący" : p.spectator ? " — Oglądający" : "");
+      (p.host ? " — Prowadzący" : p.spectator ? " — Oglądający" : "") +
+      (p.connected===false ? " — rozłączony" : "");
 
     li.append(avatar, dot, name);
     list.appendChild(li);
   }
 
-  const playing = entries.filter(p => !p.spectator).length;
-  const spectators = entries.filter(p => p.spectator).length;
+  const playing = entries.filter(p => !p.spectator && p.connected!==false).length;
+  const spectators = entries.filter(p => p.spectator && p.connected!==false).length;
   $("lobbyTitle").textContent = `Lista graczy (${playing}/30)`;
   $("lobbyStatus").textContent = currentGameCode
     ? `Kod Gry: ${currentGameCode}` + (spectators ? ` • Oglądający: ${spectators}` : "")
     : "Nie dołączono do lobby";
+}
+
+function updateSpectatorPanel(){
+  if(currentUser?.role!=="spectator") return;
+
+  $("spectatorGameCode").textContent=currentGameCode || "----";
+  const list=$("spectatorPlayerList");
+  list.innerHTML="";
+
+  const players=Object.entries(remotePlayers)
+    .filter(([,p])=>!p.spectator)
+    .sort((a,b)=>(a[1].name||"").localeCompare(b[1].name||"","pl"));
+
+  for(const [uid,p] of players){
+    const button=document.createElement("button");
+    button.className="spectatorPlayerItem";
+    if(uid===followUid) button.classList.add("active");
+    if(p.connected===false) button.classList.add("offline");
+    button.disabled=p.connected===false;
+
+    const dot=document.createElement("span");
+    dot.className="spectatorPlayerDot";
+
+    const label=document.createElement("span");
+    label.className="spectatorPlayerText";
+    const level=Number(p.level||currentLevel||1);
+    const place=level===3 ? "Ruiny" : `L${level}`;
+    label.textContent=`${p.name||"Gracz"} • ${place}`;
+
+    button.append(dot,label);
+    button.addEventListener("click",()=>{
+      followUid=uid;
+      $("spectateSelect").value=uid;
+      updateSpectatorPanel();
+    });
+    list.appendChild(button);
+  }
+
+  if(!players.length){
+    const empty=document.createElement("div");
+    empty.textContent="Brak graczy";
+    empty.style.cssText="color:#777;font:700 11px monospace;padding:5px 2px";
+    list.appendChild(empty);
+  }
 }
 
 function listenToLobby(code) {
@@ -5807,6 +6072,7 @@ function listenToLobby(code) {
     const game = snap.val();
     currentGameData=game;
     renderLobby(game.players || {});
+    if(currentUser?.role==="spectator") $("spectatorGameCode").textContent=code;
 
     if (game.status === "started") {
       $("lobbyStatus").textContent = `Kod Gry: ${code} • Gra rozpoczęta`;
@@ -5825,27 +6091,42 @@ function listenToLobby(code) {
   });
 }
 
-async function addCurrentUserToGame(code) {
-  const playerRef = ref(db, `games/${code}/players/${auth.currentUser.uid}`);
-  await set(playerRef, {
-    uid: auth.currentUser.uid,
-    name: currentUser.name,
-    host: currentUser.role === "host",
-    spectator: currentUser.role === "spectator",
-    avatar: currentUser.role === "spectator" ? null : (avatarData || null),
-    level: 0,
-    joinedAt: Date.now()
-  });
+async function addCurrentUserToGame(code,gameData=null) {
+  const playerRef=ref(db,`games/${code}/players/${auth.currentUser.uid}`);
+  const existingSnap=await get(playerRef);
+  const existing=existingSnap.exists() ? existingSnap.val() : null;
+  const game=gameData || (await get(ref(db,`games/${code}`))).val() || {};
 
+  loadSavedAvatar();
 
-  if(currentUser.role!=="spectator"){
-    loadSavedAvatar();
-    if(avatarData){
-      try{ await update(playerRef,{avatar:avatarData}); }catch(_){}
-    }
+  if(existing){
+    await update(playerRef,{
+      uid:auth.currentUser.uid,
+      name:currentUser.name,
+      host:currentUser.role==="host",
+      spectator:currentUser.role==="spectator",
+      avatar:currentUser.role==="spectator" ? null : (avatarData || existing.avatar || null),
+      connected:true,
+      rejoinedAt:Date.now()
+    });
+  }else{
+    await set(playerRef,{
+      uid:auth.currentUser.uid,
+      name:currentUser.name,
+      host:currentUser.role==="host",
+      spectator:currentUser.role==="spectator",
+      avatar:currentUser.role==="spectator" ? null : (avatarData || null),
+      level:game.status==="started" ? Number(game.level||1) : 0,
+      connected:true,
+      joinedAt:Date.now()
+    });
   }
 
-  try { await onDisconnect(playerRef).remove(); } catch (_) {}
+  rememberGameCode(code);
+
+  try{
+    await onDisconnect(playerRef).update({connected:false});
+  }catch(_){}
 }
 
 async function makeUniqueCode() {
@@ -5908,6 +6189,7 @@ $("loginForm").addEventListener("submit", async e => {
       }
 
       renderLobby({});
+      updateRejoinButton();
       ensureAvatar();
       window.scrollTo(0, 0);
     }, 430);
@@ -5951,33 +6233,56 @@ $("createGame").addEventListener("click", async () => {
 });
 
 $("joinGame").addEventListener("click", async () => {
-  if (!currentUser || !auth.currentUser) return;
+  if(!currentUser || !auth.currentUser) return;
 
-  const code = $("gameCodeInput").value.trim();
-  if (!/^\d{4}$/.test(code)) {
+  const code=$("gameCodeInput").value.trim();
+  if(!/^\d{4}$/.test(code)){
     alert("Wpisz 4-cyfrowy Kod Gry.");
     return;
   }
 
-  try {
-    const gameSnap = await get(ref(db, `games/${code}`));
-    if (!gameSnap.exists()) {
+  try{
+    const gameSnap=await get(ref(db,`games/${code}`));
+    if(!gameSnap.exists()){
       alert("Nie znaleziono gry o takim kodzie.");
       return;
     }
 
-    const game = gameSnap.val();
-    if (game.status !== "lobby") {
-      alert("Ta gra już się rozpoczęła.");
+    const game=gameSnap.val();
+    const existing=game.players?.[auth.currentUser.uid];
+    const remembered=savedGameCode()===code;
+
+    if(game.status!=="lobby" && !existing && !remembered){
+      alert("Ta gra już trwa. Ponownie dołączyć mogą gracze, którzy byli wcześniej w tej grze.");
       return;
     }
 
-    await addCurrentUserToGame(code);
+    await addCurrentUserToGame(code,game);
     listenToLobby(code);
-    $("gameCodeInput").value = "";
-  } catch (err) {
+    $("gameCodeInput").value="";
+  }catch(err){
     console.error(err);
     alert("Nie udało się dołączyć.");
+  }
+});
+
+$("rejoinGame").addEventListener("click",async()=>{
+  const code=savedGameCode();
+  if(!/^\d{4}$/.test(code)) return;
+
+  try{
+    const gameSnap=await get(ref(db,`games/${code}`));
+    if(!gameSnap.exists()){
+      alert("Poprzednia gra już nie istnieje.");
+      return;
+    }
+
+    const game=gameSnap.val();
+    await addCurrentUserToGame(code,game);
+    listenToLobby(code);
+  }catch(err){
+    console.error(err);
+    alert("Nie udało się ponownie dołączyć.");
   }
 });
 
