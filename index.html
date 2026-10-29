@@ -956,6 +956,8 @@ const L2_EXIT_BRIDGE_W = L2_RIGHT_GROUND_START-L2_EXIT_BRIDGE_X;
 const L2_EXIT_BRIDGE_Y = L2_PLATFORM_Y;
 const L2_EXIT_BRIDGE_H = L2_PLATFORM_H;
 const L2_MOVE_SPEED = 3.6;
+const MOVE_ACCEL = 30;
+const MOVE_DECEL = 38;
 const L2_JUMP_SPEED_MULTIPLIER = 1.18;
 const L2_JUMP_DURATION = 520;
 const L2_FALL_DURATION = 520;
@@ -981,6 +983,14 @@ const L3_PLAYER_W = .62;
 const L3_PLAYER_H = .9;
 const L3_MOVE_SPEED = L2_MOVE_SPEED;
 const L3_GRAVITY = 21;
+const L3_FALL_GRAVITY_MULT = 1.3;
+const L3_ACCEL_GROUND = 48;
+const L3_ACCEL_AIR = 28;
+const L3_DECEL_GROUND = 60;
+const L3_DECEL_AIR = 18;
+const L3_COYOTE_MS = 110;
+const L3_JUMP_BUFFER_MS = 130;
+const L3_JUMP_CUT = .45;
 const L3_JUMP_SPEED = 8.6;
 const L3_GHOST = {x:2.25,y:3.35};
 const L3_WINDOW = {x:4.55,y:1.05,w:7.75,h:4.25};
@@ -1000,6 +1010,10 @@ let spectatorPos = {x:START_X+.5,y:START_Y+.5};
 let remotePlayers = {};
 let moveVec = {x:0,y:0};
 let keyVec = {x:0,y:0};
+let moveVel = {x:0,y:0};
+let level3LastGroundAt = 0;
+let level3JumpBufferedAt = 0;
+let level3JumpHeld = false;
 let lastPosWrite = 0;
 let gameStartedHandled = false;
 let playerFinished = false;
@@ -2301,24 +2315,101 @@ function updateLevel2Jump(now){
   }
 }
 
+function approach(cur,target,delta){
+  if(cur<target) return Math.min(target,cur+delta);
+  if(cur>target) return Math.max(target,cur-delta);
+  return cur;
+}
+
+function tryNudgeAround(nx,ny,axis,canOccupy,maxShift){
+  // pomaga omijać rogi: jeśli ruch jest zablokowany o włos, przesuwa gracza wzdłuż ściany
+  const offsets=[.06,.12,.18,.24,.30];
+  for(const o of offsets){
+    for(const sign of [1,-1]){
+      const tx=axis==="x" ? nx : localPos.x+sign*o;
+      const ty=axis==="x" ? localPos.y+sign*o : ny;
+      if(canOccupy(tx,ty)){
+        const shift=Math.min(o,maxShift);
+        if(axis==="x"){
+          localPos.y+=sign*shift;
+        }else{
+          localPos.x+=sign*shift;
+        }
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 function moveContinuous(mv,dt,speed,canOccupy){
   const len=Math.hypot(mv.x,mv.y);
-  if(len<.08) return;
-
   const scale=len>1 ? 1/len : 1;
-  const dx=mv.x*scale*speed*dt;
-  const dy=mv.y*scale*speed*dt;
-  const nx=localPos.x+dx;
-  const ny=localPos.y+dy;
+  const mag=len<.08 ? 0 : Math.min(1,len);
 
-  if(canOccupy(nx,ny)){
-    localPos.x=nx;
-    localPos.y=ny;
+  const tvx=mag ? mv.x*scale*speed : 0;
+  const tvy=mag ? mv.y*scale*speed : 0;
+  const rate=mag ? MOVE_ACCEL : MOVE_DECEL;
+
+  // przyspieszenie / hamowanie (płynny start i stop)
+  const dvx=tvx-moveVel.x;
+  const dvy=tvy-moveVel.y;
+  const dl=Math.hypot(dvx,dvy);
+  const maxDv=rate*dt;
+  if(dl>maxDv && dl>0){
+    moveVel.x+=dvx/dl*maxDv;
+    moveVel.y+=dvy/dl*maxDv;
+  }else{
+    moveVel.x=tvx;
+    moveVel.y=tvy;
+  }
+
+  if(Math.abs(moveVel.x)<.01 && Math.abs(moveVel.y)<.01){
+    moveVel.x=0;
+    moveVel.y=0;
     return;
   }
 
-  if(canOccupy(nx,localPos.y)) localPos.x=nx;
-  if(canOccupy(localPos.x,ny)) localPos.y=ny;
+  // drobne kroki, żeby przy dużej prędkości nie przeskoczyć ściany
+  const totalX=moveVel.x*dt;
+  const totalY=moveVel.y*dt;
+  const steps=Math.max(1,Math.ceil(Math.max(Math.abs(totalX),Math.abs(totalY))/.08));
+  const sx=totalX/steps;
+  const sy=totalY/steps;
+  const nudgeBudget=Math.max(.02,speed*dt*.75/steps);
+
+  for(let i=0;i<steps;i++){
+    const nx=localPos.x+sx;
+    const ny=localPos.y+sy;
+
+    if(canOccupy(nx,ny)){
+      localPos.x=nx;
+      localPos.y=ny;
+      continue;
+    }
+
+    let movedX=false;
+    let movedY=false;
+
+    if(sx && canOccupy(nx,localPos.y)){ localPos.x=nx; movedX=true; }
+    if(sy && canOccupy(localPos.x,ny)){ localPos.y=ny; movedY=true; }
+
+    if(sx && !movedX){
+      // tylko gdy gracz naprawdę idzie wzdłuż osi X
+      if(Math.abs(mv.x)>Math.abs(mv.y)*1.6 && tryNudgeAround(nx,localPos.y,"x",canOccupy,nudgeBudget)){
+        localPos.x=nx;
+      }else{
+        moveVel.x=0;
+      }
+    }
+    if(sy && !movedY){
+      if(Math.abs(mv.y)>Math.abs(mv.x)*1.6 && tryNudgeAround(localPos.x,ny,"y",canOccupy,nudgeBudget)){
+        localPos.y=ny;
+      }else{
+        moveVel.y=0;
+      }
+    }
+  }
 }
 
 function moveLevel2Continuous(mv,dt){
@@ -3710,17 +3801,38 @@ function level3ProbeGround(now){
   }
 }
 
+function level3DoJump(){
+  level3Vel.y=-L3_JUMP_SPEED;
+  level3OnGround=false;
+  level3GroundId="";
+  level3LastGroundAt=0;
+  level3JumpBufferedAt=0;
+}
+
 function startLevel3Jump(){
   if(
     currentLevel!==3 ||
     currentUser?.role==="spectator" ||
-    playerFinished ||
-    !level3OnGround
+    playerFinished
   ) return;
 
-  level3Vel.y=-L3_JUMP_SPEED;
-  level3OnGround=false;
-  level3GroundId="";
+  level3JumpHeld=true;
+  const now=performance.now();
+  const canCoyote=level3LastGroundAt>0 && now-level3LastGroundAt<=L3_COYOTE_MS && level3Vel.y>=0;
+
+  if(level3OnGround || canCoyote){
+    level3DoJump();
+  }else{
+    level3JumpBufferedAt=now;
+  }
+}
+
+function releaseLevel3Jump(){
+  if(!level3JumpHeld) return;
+  level3JumpHeld=false;
+  if(currentLevel===3 && level3Vel.y<-L3_JUMP_SPEED*.35){
+    level3Vel.y*=L3_JUMP_CUT;
+  }
 }
 
 function level3Respawn(){
@@ -4483,11 +4595,31 @@ function updateLevel3Movement(mv,now=performance.now()){
 
   level3PrevMovingY=movingY;
 
-  level3Vel.x=Math.max(-1,Math.min(1,mv.x))*L2_MOVE_SPEED;
+  const wantX=Math.max(-1,Math.min(1,mv.x))*L2_MOVE_SPEED;
+  const grounded=level3OnGround;
+  const accel=Math.abs(wantX)>.01
+    ? (grounded ? L3_ACCEL_GROUND : L3_ACCEL_AIR)
+    : (grounded ? L3_DECEL_GROUND : L3_DECEL_AIR);
+  level3Vel.x=approach(level3Vel.x,wantX,accel*dt);
+  if(Math.abs(level3Vel.x)<.02 && !wantX) level3Vel.x=0;
   level3MoveX(level3Vel.x*dt);
 
+  if(grounded) level3LastGroundAt=now;
+
+  if(
+    level3JumpBufferedAt &&
+    level3OnGround &&
+    now-level3JumpBufferedAt<=L3_JUMP_BUFFER_MS
+  ){
+    level3DoJump();
+  }
+  if(level3JumpBufferedAt && now-level3JumpBufferedAt>L3_JUMP_BUFFER_MS){
+    level3JumpBufferedAt=0;
+  }
+
   const oldY=localPos.y;
-  level3Vel.y=Math.min(15,level3Vel.y+L3_GRAVITY*dt);
+  const gravity=L3_GRAVITY*(level3Vel.y>0 ? L3_FALL_GRAVITY_MULT : 1);
+  level3Vel.y=Math.min(16,level3Vel.y+gravity*dt);
   const nextY=oldY+level3Vel.y*dt;
 
   if(level3Vel.y>=0){
@@ -4503,6 +4635,15 @@ function updateLevel3Movement(mv,now=performance.now()){
   }
 
   level3ProbeGround(now);
+  if(level3OnGround) level3LastGroundAt=now;
+
+  if(
+    level3JumpBufferedAt &&
+    level3OnGround &&
+    now-level3JumpBufferedAt<=L3_JUMP_BUFFER_MS
+  ){
+    level3DoJump();
+  }
 
   if(localPos.y>L3_FALL_RESPAWN_Y){
     level3Respawn();
@@ -5405,7 +5546,7 @@ function joyMove(e){
     return;
   }
 
-  const magnitude=Math.min(1,(clamped-dead)/(max-dead));
+  const magnitude=Math.pow(Math.min(1,(clamped-dead)/(max-dead)),1.25);
   moveVec={
     x:(x/len)*magnitude,
     y:(y/len)*magnitude
@@ -5425,11 +5566,19 @@ joy.addEventListener("pointermove",e=>{
   e.preventDefault();
   joyMove(e);
 });
+function resetJoyPosition(){
+  joy.style.left="";
+  joy.style.top="";
+  joy.style.bottom="";
+  joy.classList.remove("floating");
+}
+
 function joyEnd(e){
   if(joyPointer!==null && e?.pointerId!==undefined && e.pointerId!==joyPointer) return;
   joyPointer=null;
   moveVec={x:0,y:0};
   knob.style.transform="";
+  resetJoyPosition();
 }
 joy.addEventListener("pointerup",joyEnd);
 joy.addEventListener("pointercancel",joyEnd);
@@ -5438,16 +5587,44 @@ joy.addEventListener("lostpointercapture",()=>{
   joyPointer=null;
   moveVec={x:0,y:0};
   knob.style.transform="";
+  resetJoyPosition();
 });
 
 $("jumpButton").addEventListener("pointerdown",e=>{
   if(e.pointerType==="mouse" && e.button!==0) return;
   e.preventDefault();
+  try{ e.currentTarget.setPointerCapture(e.pointerId); }catch(_){}
   if(currentLevel===3){
     startLevel3Jump();
   }else{
     startLevel2Jump();
   }
+});
+for(const evt of ["pointerup","pointercancel","lostpointercapture"]){
+  $("jumpButton").addEventListener(evt,()=>{
+    if(currentLevel===3) releaseLevel3Jump();
+  });
+}
+
+// pływający joystick: dotknij lewej połowy ekranu, a joystick pojawi się pod palcem
+canvas.addEventListener("pointerdown",e=>{
+  if(e.pointerType==="mouse" && e.button!==0) return;
+  if(joyPointer!==null) return;
+  if(currentUser?.role==="spectator") return;
+  if(e.clientX>innerWidth*.55) return;
+
+  e.preventDefault();
+  const half=joy.offsetWidth/2;
+  const cx=Math.max(half+8,Math.min(innerWidth*.55,e.clientX));
+  const cy=Math.max(half+8,Math.min(innerHeight-half-8,e.clientY));
+  joy.style.left=(cx-half)+"px";
+  joy.style.top=(cy-half)+"px";
+  joy.style.bottom="auto";
+  joy.classList.add("floating");
+
+  joyPointer=e.pointerId;
+  try{ joy.setPointerCapture(e.pointerId); }catch(_){}
+  joyMove(e);
 });
 
 for(const button of $("bubbleSequenceButtons").querySelectorAll("button")){
@@ -5484,9 +5661,12 @@ function resetMovementInput(){
   pressed.clear();
   keyVec={x:0,y:0};
   moveVec={x:0,y:0};
+  moveVel={x:0,y:0};
   moveTarget=null;
   joyPointer=null;
+  if(level3JumpHeld) releaseLevel3Jump();
   if(knob) knob.style.transform="";
+  if(typeof resetJoyPosition==="function") resetJoyPosition();
 }
 addEventListener("keydown",e=>{
   const target=e.target;
@@ -5526,6 +5706,10 @@ addEventListener("keydown",e=>{
     e.code==="Space" &&
     (currentLevel===2 || currentLevel===3)
   ){
+    if(e.repeat){
+      e.preventDefault();
+      return;
+    }
     if(currentLevel===3){
       startLevel3Jump();
     }else{
@@ -5551,6 +5735,7 @@ addEventListener("keydown",e=>{
   }
 });
 addEventListener("keyup",e=>{
+  if(e.code==="Space" && currentLevel===3) releaseLevel3Jump();
   if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","KeyW","KeyA","KeyS","KeyD"].includes(e.code)){
     pressed.delete(e.code);
     recalcKeys();
